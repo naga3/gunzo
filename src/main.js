@@ -1,11 +1,11 @@
-import { PAL_HEX } from './palette.js'
+import { ALL_HEX } from './shade.js'
 import { createSim, JOB_LIST, JOBS } from './sim.js'
-import { SHOOT } from './data.js'
-import { createRenderer, W, H, PREV_BTN, NEXT_BTN, PAUSE_BTN, SWING_BTN, NEW_BTN, CONT_BTN, MENU_BTNS } from './render.js'
+import { SHOOT, THROW } from './data.js'
+import { createRenderer, W, H, PREV_BTN, NEXT_BTN, PAUSE_BTN, SWING_BTN, NEW_BTN, CONT_BTN, MENU_BTNS, PAGE_PREV, PAGE_NEXT, listPages, listHit } from './render.js'
 import { audio } from './audio.js'
 
 const PAL32 = new Uint32Array(256)               // 使っていない番号（255 など）は透明
-PAL_HEX.forEach((h, i) => {
+ALL_HEX.forEach((h, i) => {   // 色の表と、その暗い色
   const n = parseInt(h, 16)
   PAL32[i] = 0xff000000 | ((n & 0xff) << 16) | (n & 0xff00) | (n >> 16)
 })
@@ -41,15 +41,19 @@ function present(L) {
 window.addEventListener('resize', resize)
 resize()
 
-// 今は手触りを作っている途中なので、ふだんは試し場で開く（セーブを使わず、開始地点のまわりに敵を並べる）
-// ?game を付けて開くと、本来のゲーム
-const TEST = !new URLSearchParams(location.search).has('game')
-const TEST_HERO = 'bow'                            // 試し場の主人公の職（いま手触りを作っている職）
-const simOpts = (o = {}) => ({ manual: true, test: TEST, ...(TEST ? { hero: TEST_HERO } : {}), ...o })
+// ふだんは本来のゲーム。?test を付けて開くとボス戦の試し（全員助けた LV13 の仲間で、闘技場の前から。?test&lv=20 でレベルを変える）。
+// ?test=field は試し場（味方 100 人で、敵が湧き続ける）。どちらもセーブを使わない
+const QS = new URLSearchParams(location.search)
+const TEST = QS.has('test')
+const TEST_MODE = QS.get('test') === 'field' ? 'field' : 'boss'
+const TEST_LV = Number(QS.get('lv')) || 13
+const TEST_HERO = 'sword'                             // 試し場の主人公の職（いま手触りを作っている職）
+const simOpts = (o = {}) => ({ manual: true, ...(TEST ? { test: TEST_MODE, testLv: TEST_LV, hero: TEST_HERO } : {}), ...o })
 
 // --- セーブ ---
 const SAVE_KEY = 'gunzo-save-v1'
 const SOUND_KEY = 'gunzo-sound'
+const BEST_KEY = 'gunzo-best'                      // いちばん速いクリア時間（秒）
 const readSave = () => {
   try { const raw = localStorage.getItem(SAVE_KEY); return raw ? JSON.parse(raw) : null } catch { return null }
 }
@@ -105,7 +109,8 @@ function toTitle() {
 const STICK_MAX = 15
 const DEAD = 3
 const drags = new Map()
-const aimsByDrag = () => S.isManual(S.leader) && JOBS[S.leader.job].kind === 'arrow'   // 狙えるのは弓だけ（剣は向いている方へ振る）
+const aimsByDrag = () => S.isManual(S.leader) && (['arrow', 'bomb', 'magic', 'boomerang', 'lightning'].includes(JOBS[S.leader.job].kind) || JOBS[S.leader.job].taunt)   // 狙えるのは弓・爆弾・氷術師・ブーメラン・雷術師・盾（剣・盗賊は向いている方へ）
+const throwsBomb = () => S.isManual(S.leader) && JOBS[S.leader.job].kind === 'bomb'
 let zHeld = false                                    // Z（Space）を押している（振るボタンを押しているのと同じ）
 let zTimer = 0
 let zDownT = 0
@@ -114,14 +119,16 @@ canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') m
 canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') mouseAt = null })
 // 弓で Z を長押し（引き絞り）しているあいだは、マウスのドラッグが狙いになる。ちょん押しではドラッグ（移動）に触らない
 // mv: 狙いに替える前の、移動の向き（ドラッグの始点からのずれ）。移動に戻すとき、同じ向きに歩き続けるように
-const toAim = (d) => ({ kind: 'btn', fire: false, aim: true, ax: d.x, ay: d.y, x: d.x, y: d.y, mv: d.kind === 'drag' ? [d.x - d.ax, d.y - d.ay] : [0, 0] })
-const toMove = (d) => ({ kind: 'drag', ax: d.x - d.mv[0], ay: d.y - d.mv[1], sx: d.x, sy: d.y, x: d.x, y: d.y, t: 0, moved: 99 })   // Z を離したあとも、押したままなら歩き続ける
+const toAim = (d) => ({ kind: 'btn', fire: false, aim: true, follow: !!d.follow, ax: d.x, ay: d.y, x: d.x, y: d.y, mv: d.kind === 'drag' ? [d.x - d.ax, d.y - d.ay] : [0, 0] })
+const toMove = (d) => ({ kind: 'drag', follow: d.follow, ax: d.x - d.mv[0], ay: d.y - d.mv[1], sx: d.x, sy: d.y, x: d.x, y: d.y, t: 0, moved: 99 })   // Z を離したあとも、押したままなら歩き続ける
 const keys = new Set()
 
 function toFb(e) {
   const r = canvas.getBoundingClientRect()
   return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height, scale: r.width / W }
 }
+const pause = () => { ui.paused = true; ui.page = 0 }
+const turnPage = (d) => { const n = listPages(S); ui.page = (((ui.page ?? 0) + d) % n + n) % n }
 const inRect = (p, b) => p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -135,6 +142,10 @@ canvas.addEventListener('pointerdown', (e) => {
     return
   }
   if (ui.paused) {
+    if (inRect(p, PAGE_PREV)) turnPage(-1)
+    if (inRect(p, PAGE_NEXT)) turnPage(1)
+    const a = listHit(S, ui, p)                   // 一覧の仲間を押すと、その仲間に切り替えて戻る
+    if (a && a.alive) { S.switchTo(a); ui.paused = false; return }
     for (const b of MENU_BTNS) {
       if (!inRect(p, b)) continue
       if (b.id === 'resume') ui.paused = false
@@ -145,7 +156,7 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   if (S.state === 'over') { if (ui.hasSave) continueGame(); else newGame(); return }
   if (S.state === 'win') { if (S.winT > 2.5) { if (!TEST) try { localStorage.removeItem(SAVE_KEY) } catch { /* ignore */ } toTitle() } return }
-  if (inRect(p, PAUSE_BTN)) { ui.paused = true; drags.clear(); return }
+  if (inRect(p, PAUSE_BTN)) { pause(); drags.clear(); return }
   if (inRect(p, PREV_BTN)) { S.cycle(-1); drags.set(e.pointerId, { kind: 'btn' }); return }
   if (inRect(p, NEXT_BTN)) { S.cycle(1); drags.set(e.pointerId, { kind: 'btn' }); return }
   // 振るボタン（ブロスタ式）: ちょんと押して離す → 近くの敵へ自動で。ボタンから指をずらす → その向きに狙う。離すと振る・射る（弓は押している間が引き絞り）
@@ -158,11 +169,14 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   // Z（Space）を押している間のドラッグは、振るボタンからずらすのと同じ: 移動ではなく狙い（始めた所からの向き）。Z を離すと撃つ
   if (zHeld && aimsByDrag()) {
-    drags.set(e.pointerId, toAim(p))
+    drags.set(e.pointerId, toAim({ ...p, follow: e.pointerType === 'mouse' }))
     return
   }
-  drags.set(e.pointerId, { kind: 'drag', ax: p.x, ay: p.y, sx: p.x, sy: p.y, x: p.x, y: p.y, t: performance.now(), moved: 0 })
+  // PC のマウス: 押している間、マウスのある場所へ歩く（スマホの指は、押した所からの向きで動くスティック）
+  const follow = e.pointerType === 'mouse'
+  drags.set(e.pointerId, { kind: 'drag', follow, ax: p.x, ay: p.y, sx: p.x, sy: p.y, x: p.x, y: p.y, t: performance.now(), moved: 0 })
 })
+const FOLLOW_STOP = 3, FOLLOW_SLOW = 14            // マウスへ歩くとき: この近さで止まり、この距離の内側ではゆっくり
 const AIM_DEAD = 5                                   // ボタンから、これ以上ずらしたら狙う（それまでは自動）
 canvas.addEventListener('pointermove', (e) => {
   const d = drags.get(e.pointerId)
@@ -171,6 +185,8 @@ canvas.addEventListener('pointermove', (e) => {
     d.x = p.x
     d.y = p.y
     S.input.aim = m > AIM_DEAD ? [dx / m, dy / m] : null
+    // 爆弾は、落とす場所: ずらした向きへ、ずらした長さの THROW.drag 倍だけ先
+    S.input.target = throwsBomb() && m > AIM_DEAD ? { x: S.leader.x + dx * THROW.drag, y: S.leader.y + dy * THROW.drag } : null
     return
   }
   if (!d || d.kind !== 'drag') return
@@ -211,7 +227,9 @@ window.addEventListener('keydown', (e) => {
     else if (k === 'n') newGame()
     return
   }
-  if (k === 'escape' || k === 'p') { if (S.state === 'play') ui.paused = !ui.paused; return }
+  if (k === 'escape' || k === 'p') { if (S.state === 'play') { if (ui.paused) ui.paused = false; else pause() } return }
+  if (ui.paused && (k === 'arrowleft' || k === 'a')) { turnPage(-1); return }
+  if (ui.paused && (k === 'arrowright' || k === 'd')) { turnPage(1); return }
   if (k === 'm') { ui.sound = !ui.sound; localStorage.setItem(SOUND_KEY, ui.sound ? '1' : '0'); audio.setEnabled(ui.sound); return }
   if (S.state === 'over') { if (k === 'r' || k === ' ' || k === 'enter') { if (ui.hasSave) continueGame(); else newGame() } return }
   if (S.state === 'win') { if (S.winT > 2.5 && (k === ' ' || k === 'enter')) toTitle(); return }
@@ -244,13 +262,14 @@ window.addEventListener('keyup', (e) => {
     if (S.input.hold) { S.input.hold = false; S.input.swing = true }   // 振るボタンを離すのと同じ（剣は振る、弓は射る）
   }
 })
-window.addEventListener('blur', () => { keys.clear(); drags.clear(); zHeld = false; S.input.hold = false; if (ui.screen === 'play' && S.state === 'play') ui.paused = true })
+window.addEventListener('blur', () => { keys.clear(); drags.clear(); zHeld = false; S.input.hold = false; if (ui.screen === 'play' && S.state === 'play' && !ui.paused) pause() })
 
 function readInput() {
   // PC: 弓で Z を長押し（引き絞り）しているあいだは、マウスのある場所へ狙う
   if (zHeld && mouseAt && aimsByDrag() && performance.now() - zDownT > SHOOT.tap * 1000) {
     const L = S.leader, dx = mouseAt.x + S.camF.x - L.x, dy = mouseAt.y + S.camF.y - (L.y - 4), m = Math.hypot(dx, dy)
     if (m > 4) S.input.aim = [dx / m, dy / m]
+    if (throwsBomb()) S.input.target = { x: mouseAt.x + S.camF.x, y: mouseAt.y + S.camF.y }   // 爆弾は、マウスのある場所へ落とす
   }
   let mx = 0, my = 0
   if (keys.has('arrowleft') || keys.has('a')) mx -= 1
@@ -260,6 +279,15 @@ function readInput() {
   ui.stick = null
   for (const d of drags.values()) {
     if (d.kind !== 'drag') continue
+    if (d.follow) {                                  // マウスのある場所へ（近くではゆっくり、着いたら止まる）
+      const L = S.leader, dx = d.x + S.camF.x - L.x, dy = d.y + S.camF.y - (L.y - 4), dist = Math.hypot(dx, dy)
+      if (dist > FOLLOW_STOP) {
+        const k = Math.min(1, (dist - FOLLOW_STOP) / FOLLOW_SLOW)
+        mx += (dx / dist) * k
+        my += (dy / dist) * k
+      }
+      break
+    }
     const dx = d.x - d.ax, dy = d.y - d.ay
     const dist = Math.hypot(dx, dy)
     if (dist > DEAD) {
@@ -280,7 +308,13 @@ let prev = { rescued: 0, lost: 0, state: 'play', boss: false, bossHp: 0, leaderI
 function events() {
   if (S.rescued > prev.rescued) audio.sfx('rescue')
   if (S.lost > prev.lost) audio.sfx('lost')
-  if (S.state === 'win' && prev.state !== 'win') { audio.sfx('win'); audio.music('ending') }
+  if (S.state === 'win' && prev.state !== 'win') {
+    audio.sfx('win'); audio.music('ending')
+    // クリア時間の記録（早解き）。試し場では残さない
+    const best = Number(localStorage.getItem(BEST_KEY)) || 0
+    S.best = best
+    if (!TEST && (!best || S.t < best)) { S.newBest = true; localStorage.setItem(BEST_KEY, String(S.t)) }
+  }
   if (S.state === 'over' && prev.state !== 'over') { audio.sfx('over'); audio.music(null) }
   const bossOn = S.boss && S.boss.aggro && S.boss.hp > 0
   if (bossOn && !prev.boss) audio.music('boss')

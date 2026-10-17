@@ -1,6 +1,6 @@
 # 味方（allies）
 
-- 1 職 1 ファイル（`sword.pic` は剣士）。ファイル名は職の名前（sword spear shield bow xbow axe boom mage bomb volt heal）。
+- 1 職 1 ファイル（`sword.pic` は剣士）。ファイル名は職の名前（sword shield bow boom ice bomb volt heal thief hammer）。
 - 絵は正面だけ: 立ち `down`（16 × 16）。
 - 歩きのコマ: `down_walk1`・`down_walk2`。動きはファイルの `anim` の行で決める:
   `anim walk_down down_walk1:120 down:120 down_walk2:120 down:120`（walk1 → 立ち → walk2 → 立ち。数字は 1 コマの長さ ms）。ゲームは歩くとき、どちらへ動いても `walk_down` を流す。

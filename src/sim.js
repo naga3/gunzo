@@ -2,7 +2,7 @@
 import { TILE, MW, MH, T, B, solidTile, generateWorld, createFlow, CASTLE } from './world.js'
 import { ENEMY_SIZE } from './enemysprites.js'
 import {
-  HP_MUL, DMG_MUL, JOBS, JOB_LIST, JOB_COUNTS, ENEMIES, BOSS, MAX_LV, xpNeed, lvMul, SYLLABLES, SWING, SHOOT, MASS,
+  HP_MUL, DMG_MUL, DIFFS, DIFF_RAMP, ARMOR, JOBS, JOB_LIST, JOB_COUNTS, ENEMIES, POOLS, BOSS, MAX_LV, xpNeed, lvMul, NAMES, SWING, SHOOT, GUARD, THROW, PRAY, STAB, FREEZE, BREAK, BOOMER, CHAIN, SMASH, MASS,
 } from './data.js'
 
 export const VIEW_W = 320
@@ -15,15 +15,21 @@ const pick = (arr) => arr[(Math.random() * arr.length) | 0]
 const RAD = { blob: 7, bat: 6, human: 6, beast: 8, heavy: 13 }
 
 export function createSim(opts = {}) {
-  const world = generateWorld(opts.seed ?? 7)
+  // 難しさ（easy・normal・hard）: 敵の強さと見張りの数、ボス
+  const DIFF = DIFFS[opts.diff] ?? DIFFS.normal
+  const world = generateWorld(opts.seed ?? 7, DIFF.guards)
+  const ramp = (m, tier) => 1 + (m - 1) * (DIFF_RAMP[tier] ?? 1)   // 先の地域ほど、難しさの倍率が強く効く
+  const EDEF = Object.fromEntries(Object.entries(ENEMIES).map(([k, D]) => [k, { ...D, hp: Math.round(D.hp * ramp(DIFF.hp, D.tier)), dmg: Math.round(D.dmg * ramp(DIFF.dmg, D.tier)),
+    speed: D.speed * ramp(DIFF.speed, D.tier), wind: D.wind * ramp(DIFF.wind, D.tier) }]))
   const flow = createFlow(world)
   const tiles = world.tiles
   // manual: 操作キャラ（manual の職）は自分で振る。ボットや確認では渡さず、今までどおり自動で攻撃する
   const MANUAL = opts.manual ?? false
+  const FIELD = opts.test === true || opts.test === 'field'   // 試し場（敵が湧き続ける）。'boss' はボス戦の試し
   const S = {
     world, flow, t: 0, state: 'play', winT: 0,
     allies: [], enemies: [], cages: [], camps: [], projs: [], blasts: [], fx: [], hazards: [],
-    actA: [], actE: [], leader: null, cam: { x: 0, y: 0 }, camF: { x: 0, y: 0 }, input: { mx: 0, my: 0, swing: false, pressed: false, hold: false, aim: null },
+    actA: [], actE: [], leader: null, cam: { x: 0, y: 0 }, camF: { x: 0, y: 0 }, input: { mx: 0, my: 0, swing: false, pressed: false, hold: false, aim: null, target: null },
     nextId: 1, rescued: 0, total: 0, lost: 0, kills: 0, tpCool: 0, banner: null, bannerT: 0,
     flowKey: -1, boss: null, bossFight: false, bossFightT: 0, hazardsPrev: [], hitLog: null,
     seen: new Uint8Array(MW * MH), deaths: [], deadIdx: new Set(), hitstop: 0, shakeT: 0,
@@ -85,14 +91,46 @@ export function createSim(opts = {}) {
       cd: rnd(0, 0.4), flash: 0, healT: rnd(0, 1.5),
       wanderT: rnd(0, 2), wx: 0, wy: 0, still: true, stuckT: 0, lastX: x, lastY: y, stuckChk: 0, stkT: 0, noSepT: 0, dodgeAt: 0, hurtT: -99, retreat: false,
       path: null, pi: 0, pathT: 0, pathLife: 0.7, pgx: -1, pgy: -1, ignore: null, ignoreT: 0, goal: 'idle',
-      name: pick(SYLLABLES) + pick(SYLLABLES), anim: rnd(0, 4),
+      name: pick(NAMES), anim: rnd(0, 4),
     }
     u.hp = u.maxhp
     S.allies.push(u)
     return u
   }
+  // 陣地の湧き直し: 倒した見張りは、その場所が画面の外に出て 10 秒たつと、元の場所に湧き直す（顔ぶれは少し変わる）。魔王城の中は湧き直さない
+  const RESPAWN = { wait: 10, keep: 0.5 }
+  S.respawns = []
+  function queueRespawn(idx) {
+    const en = world.enemies[idx]
+    if (!en) return
+    const tx = en.x / TILE, ty = en.y / TILE
+    if (tx >= CASTLE.x0 && tx <= CASTLE.x1 && ty >= CASTLE.y0 && ty <= CASTLE.y1) return
+    S.respawns.push({ idx, t: RESPAWN.wait })
+  }
+  function respawnKind(en) {
+    if (Math.random() < RESPAWN.keep) return en.kind
+    const pool = POOLS[world.biome[((en.y / TILE) | 0) * MW + ((en.x / TILE) | 0)]]
+    if (!pool) return en.kind
+    const D0 = ENEMIES[en.kind]
+    const ok = pool.filter((k) => ENEMIES[k].cost <= D0.cost * 1.5 + 1 && (D0.atk === 'flyer' || ENEMIES[k].atk !== 'flyer'))
+    return ok.length ? pick(ok) : en.kind
+  }
+  function updateRespawns(dt) {
+    if (!S.respawns.length) return
+    S.respawns = S.respawns.filter((r) => {
+      const en = world.enemies[r.idx]
+      const m = 24   // 画面のふちのすぐ外も「見えている」とみなす
+      if (en.x > S.cam.x - m && en.x < S.cam.x + VIEW_W + m && en.y > S.cam.y - m && en.y < S.cam.y + VIEW_H + m) { r.t = RESPAWN.wait; return true }
+      r.t -= dt
+      if (r.t > 0) return true
+      const e = newEnemy(respawnKind(en), en.x, en.y, en.camp)
+      e.idx = r.idx
+      S.deadIdx.delete(r.idx)
+      return false
+    })
+  }
   function newEnemy(kind, x, y, camp, def) {
-    const D = def ?? ENEMIES[kind]
+    const D = def ?? EDEF[kind]
     const e = {
       id: S.nextId++, kind, def: D, x, y, hx: x, hy: y, hp: D.hp, maxhp: D.hp, rad: D.big ? 8 : RAD[D.shape],
       cdT: rnd(0.3, 1), flash: 0, face: 1, active: false, aggro: false, anim: rnd(0, 4), wob: rnd(0, 6),
@@ -104,11 +142,18 @@ export function createSim(opts = {}) {
   }
 
   // --- ダメージ・回復・経験値 ---
-  function hurtAlly(u, dmg, by) {
+  // src: 攻撃の来た所 { x, y }（盾で正面から受けたかを見る）、foe: その攻撃をした敵（ジャストガードでよろけさせる）
+  function hurtAlly(u, dmg, by, src = null, foe = null) {
     if (!u.alive) return
+    const g = src ? guardOf(u, src.x, src.y) : null
+    if (g === 'just') return justGuard(u, foe)
+    if (g === 'block') {
+      dmg *= GUARD.chip
+      spark(u.x + u.guardDir[0] * 9, u.y - 6 + u.guardDir[1] * 9, 'gy6', 4, 40)
+    }
     dmg = Math.max(1, Math.round(dmg))
     u.hp -= dmg
-    if (opts.test && u === S.leader) u.hp = Math.max(1, u.hp) // 試し場では操作キャラは倒れない
+    if (FIELD) u.hp = Math.max(1, u.hp)              // 試し場では誰も倒れない（操作キャラも、いっしょにいる仲間も）
     if (S.hitLog) S.hitLog.push({ t: S.t, id: u.id, dmg, by: by ?? '?', hp: u.hp, maxhp: u.maxhp, job: u.job })
     u.hurtT = S.t
     u.flash = 0.12
@@ -121,6 +166,43 @@ export function createSim(opts = {}) {
       spark(u.x, u.y - 4, 'gy6', 10, 60)
       ring(u.x, u.y, 'gy4', 14, 0.35)
     }
+  }
+  // 盾で受けたか: 構えていて、攻撃の来た所が正面（half の中）なら 'block'、構えてすぐ（just 秒以内）なら 'just'
+  function guardOf(u, sx, sy) {
+    if (!u.guarding || !u.guardDir) return null
+    const dx = sx - u.x, dy = sy - (u.y - 4), d = Math.hypot(dx, dy)
+    if (d > 0.5 && (dx * u.guardDir[0] + dy * u.guardDir[1]) / d < Math.cos(GUARD.half)) return null
+    return S.t - u.guardT < GUARD.just ? 'just' : 'block'
+  }
+  function justGuard(u, foe) {
+    hitFeel(GUARD.justStop, true)
+    ring(u.x + u.guardDir[0] * 8, u.y - 6 + u.guardDir[1] * 8, 'white', 16, 0.3)
+    spark(u.x + u.guardDir[0] * 9, u.y - 6 + u.guardDir[1] * 9, 'white', 8, 70)
+    num(u.x, u.y - 22, 'JUST', 'ye3')
+    if (foe && foe.hp > 0 && !bossOpening(foe, u)) stunEnemy(foe, GUARD.stun)
+  }
+  // 敵をよろけさせる（攻撃が止まり、少し動けない）
+  function stunEnemy(e, t) {
+    if (e.kind === 'boss') { e.pstate = 'stun'; e.pT = t }
+    else { e.state = 'stun'; e.stunT = t }
+    e.tele = null
+    num(e.x, e.y - e.rad - 12, 'BREAK', 'ye3')
+  }
+  // ボスの隙（BREAK）: 操作キャラがボスの技を止めたとき。ボスは BREAK.dur 秒動けず、その間は全員のダメージが BREAK.mul 倍
+  function bossOpening(b, by) {
+    if (!b || b.kind !== 'boss' || by !== S.leader || b.hp <= 0) return false
+    if (S.t < (b.breakOk ?? 0)) return false
+    b.breakT = BREAK.dur
+    b.breakOk = S.t + BREAK.dur + BREAK.cool
+    b.pstate = 'stun'
+    b.pT = Math.max(b.pT, BREAK.dur)
+    b.tele = null
+    S.banner = 'OPENING!'
+    S.bannerT = 1.2
+    ring(b.x, b.y, 'ye3', 40, 0.45)
+    spark(b.x, b.y - 10, 'ye3', 20, 120)
+    hitFeel(0.12, true)
+    return true
   }
   function healAlly(u, n) {
     if (!u.alive || u.hp >= u.maxhp) return
@@ -143,9 +225,28 @@ export function createSim(opts = {}) {
       spark(u.x, u.y - 6, 'ye2', 8, 50)
     }
   }
-  function hurtEnemy(e, dmg, by) {
+  // pierce: 硬い敵（armor）にも全部通る攻撃（盗賊の背後・爆弾・引き絞った矢）。ハンマーと、凍った敵を砕く一撃も通る
+  function hurtEnemy(e, dmg, by, pierce = false) {
     if (e.hp <= 0) return
-    if (e.kind === 'boss' && e.pstate === 'stun') dmg *= 1.25
+    if (e.kind === 'boss') dmg *= e.breakT > 0 ? BREAK.mul : e.pstate === 'stun' ? 1.25 : 1
+    if (e.def.armor && !pierce && !(e.frozen > 0) && !(by && JOBS[by.job]?.heavy)) {   // 硬い: 少ししか通らない（灰色の火花）
+      dmg *= ARMOR
+      spark(e.x, e.y - 6, 'gy5', 2, 30)
+    }
+    if (e.frozen > 0 && by && JOBS[by.job] && by.job !== 'ice') {   // 凍った敵を、ほかの職で叩くと砕ける（ボスは bossShatter 倍）
+      dmg *= e.kind === 'boss' ? FREEZE.bossShatter : FREEZE.shatter
+      e.frozen = 0
+      if (by === S.leader) num(e.x, e.y - e.rad - 12, 'SHATTER', 'bl5')   // 文字も操作キャラのときだけ（100 人分で画面が埋まらないように）
+      spark(e.x, e.y - 5, 'bl5', by === S.leader ? 12 : 4, 80)
+      spark(e.x, e.y - 5, 'white', 6, 60)
+      if (by === S.leader) hitFeel(0.08, true)     // 止まる・揺れるのは、操作キャラが砕いたときだけ（自律の仲間が砕くたびに揺れないように）
+    }
+    if (S.dmgByJob && by?.job) {                    // 測るとき（ボット）: 職ごとに、敵の種類（硬い・飛ぶ・ふつう・ボス）別の与えたダメージ
+      const cat = e.kind === 'boss' ? 'boss' : e.def.armor ? 'armor' : e.def.atk === 'flyer' ? 'flyer' : 'other'
+      const t = (S.dmgByJob[by.job] ??= { armor: 0, flyer: 0, other: 0, boss: 0 })
+      t[cat] += Math.min(dmg, Math.max(0, e.hp))
+      if (by === S.leader && cat === 'boss') S.dmgLeaderBoss = (S.dmgLeaderBoss ?? 0) + Math.min(dmg, Math.max(0, e.hp))
+    }
     e.hp -= dmg
     e.flash = 0.1
     if (!e.aggro) { e.aggro = true; alertCamp(e) }
@@ -156,7 +257,7 @@ export function createSim(opts = {}) {
   }
   function killEnemy(e, by) {
     S.kills++
-    if (e.idx !== undefined) S.deadIdx.add(e.idx)
+    if (e.idx !== undefined) { S.deadIdx.add(e.idx); queueRespawn(e.idx) }
     spark(e.x, e.y - 4, 'gy6', e.kind === 'boss' ? 40 : 10, e.kind === 'boss' ? 120 : 60)
     ring(e.x, e.y, 'gy4', e.kind === 'boss' ? 60 : 12, 0.3)
     // 経験値は総量が決まっている：半分は倒した人、残りは近くで戦っていた仲間で分ける
@@ -176,16 +277,33 @@ export function createSim(opts = {}) {
   const dmgOf = (u, mul = 1) => JOBS[u.job].atk * lvMul(u.lvl) * mul
 
   // --- 範囲攻撃・飛び道具 ---
-  function explode(x, y, r, dmg, team, by) {
+  // kb: 爆風で中心から外へ吹き飛ばす強さ（操作キャラの爆弾）
+  function explode(x, y, r, dmg, team, by, kb = 0) {
     ring(x, y, team === 'ally' ? 'or2' : 'rd3', r, 0.3)
     spark(x, y, team === 'ally' ? 'ye2' : 'rd4', 10, 70)
     if (team === 'ally') {
+      let hit = false
       for (const e of S.actE) {
-        if (e.hp > 0 && Math.hypot(e.x - x, e.y - y) < r + e.rad * 0.6) hurtEnemy(e, dmg, by)
+        if (e.hp > 0 && Math.hypot(e.x - x, e.y - y) < r + e.rad * 0.6) {
+          hurtEnemy(e, dmg, by, by && JOBS[by.job]?.kind === 'bomb')   // 爆弾の爆発は硬い敵にも通る
+          hit = true
+          if (kb && e.hp > 0) {
+            let dx = e.x - x, dy = e.y - y, d = Math.hypot(dx, dy)
+            if (d < 2 && by) { dx = e.x - by.x; dy = e.y - by.y; d = 0 }   // 真ん中にいた敵は、投げた人から遠ざかる向きへ
+            const m = Math.hypot(dx, dy) || 1
+            knock(e, dx / m, dy / m, kb * (1 - 0.5 * Math.min(1, d / r)))   // 中心に近いほど強く
+            e.flash = 0.16
+          }
+        }
+      }
+      if (kb) {                                    // 操作キャラの爆弾: 大きな火花と、揺れ
+        spark(x, y, 'or2', 14, 110)
+        ring(x, y, 'ye3', r * 0.6, 0.2)
+        hitFeel(hit ? THROW.stop : 0, true)
       }
     } else {
       for (const a of S.actA) {
-        if (a.alive && Math.hypot(a.x - x, a.y - y) < r + 4) hurtAlly(a, dmg, by && by.kind)
+        if (a.alive && Math.hypot(a.x - x, a.y - y) < r + 4) hurtAlly(a, dmg, by && by.kind, { x, y })
       }
     }
   }
@@ -221,26 +339,11 @@ export function createSim(opts = {}) {
     u.fy = dy / d
     switch (J.kind) {
       case 'melee':
+        if (J.backstab && behind(u, tgt)) { hurtEnemy(tgt, dmg * (tgt.kind === 'boss' ? STAB.bossBack : STAB.back), u, true); num(tgt.x, tgt.y - tgt.rad - 12, 'CRIT', 'ye3'); break }   // 盗賊: 背後から
         hurtEnemy(tgt, dmg, u)
         spark((u.x + tgt.x) / 2, (u.y + tgt.y) / 2 - 4, 'gy6', 2, 30)
         break
-      case 'pierce': { // 前の2体を突く
-        const hits = []
-        for (const e of S.actE) {
-          if (e.hp <= 0) continue
-          const rx = e.x - u.x, ry = e.y - u.y
-          const along = rx * u.fx + ry * u.fy
-          const side = Math.abs(rx * -u.fy + ry * u.fx)
-          if (along > -4 && along < J.range + e.rad && side < 8 + e.rad * 0.6) hits.push([along, e])
-        }
-        hits.sort((a, b) => a[0] - b[0])
-        for (const [, e] of hits.slice(0, 2)) hurtEnemy(e, dmg, u)
-        for (let i = 6; i < J.range; i += 4) spark(u.x + u.fx * i, u.y - 4 + u.fy * i, 'gy6', 1, 6)
-        break
-      }
       case 'arrow': shoot(u, tgt.x, tgt.y, dmg, { team: 'ally', speed: 210, life: J.range / 210 + 0.15, kind: 'arrow' }); break
-      case 'bolt': shoot(u, tgt.x, tgt.y, dmg, { team: 'ally', speed: 320, life: J.range / 320 + 0.15, kind: 'bolt', r: 5 }); break
-      case 'axe': shoot(u, tgt.x, tgt.y, dmg, { team: 'ally', speed: 150, life: J.range / 150 + 0.2, kind: 'axe', r: 6 }); break
       case 'boomerang': shoot(u, tgt.x, tgt.y, dmg, { team: 'ally', speed: 170, life: 4, kind: 'boom', r: 6, pierce: 999, maxd: J.range }); break
       case 'magic': shoot(u, tgt.x, tgt.y, dmg, { team: 'ally', speed: 165, life: J.range / 165 + 0.2, kind: 'magic', r: 6, splash: 28 }); break
       case 'bomb':
@@ -288,12 +391,13 @@ export function createSim(opts = {}) {
   }
 
   // --- 操作キャラが自分で振る剣 ---
-  const isManual = (u) => MANUAL && !!JOBS[u.job].manual
+  const isManual = (u) => MANUAL && !opts.botLeader && !!JOBS[u.job].manual   // botLeader: ボットが操作キャラを動かす（自動で攻撃させる）
   const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d }
   // 予兆の最中の敵を斬ると、攻撃が止まって少し動けなくなる。ボスは近くの技（叩きつけ・突進・扇）だけ止まる
-  function stagger(e) {
+  function stagger(e, by) {
     if (e.kind === 'boss') {
       if (e.pstate !== 'wind' || !['slam', 'charge', 'fan'].includes(e.atkKind)) return false
+      if (bossOpening(e, by)) return true
       e.pstate = 'stun'
       e.pT = SWING.bossStun
     } else {
@@ -306,9 +410,71 @@ export function createSim(opts = {}) {
     ring(e.x, e.y, 'ye3', e.rad + 8, 0.3)
     return true
   }
+  // 敵の弾を、撃った敵へ弾き返す（撃った敵がいなければ ang の向きへ。ang も無ければ来た向きへ）
+  function deflectProj(p, u, ang = null) {
+    const src = p.by && p.by.hp > 0 ? p.by : null
+    const a = src ? Math.atan2(src.y - 4 - p.y, src.x - p.x) : ang ?? Math.atan2(-p.vy, -p.vx)
+    const sp = Math.max(160, Math.hypot(p.vx, p.vy) * 1.8)
+    p.vx = Math.cos(a) * sp
+    p.vy = Math.sin(a) * sp
+    p.team = 'ally'
+    p.by = u
+    p.dmg = Math.max(p.dmg * SWING.back, dmgOf(u) * 2)
+    p.hit = new Set()
+    p.life = 1.6
+    p.splash = 0
+    p.deflected = true
+    spark(p.x, p.y, 'white', 5, 50)
+  }
+  // 盾で押す: 正面の敵に体当たり。大きく押し出し、予兆の最中ならよろけさせる
+  function bash(u) {
+    const [dx0, dy0] = u.guardDir || [u.fx, u.fy]
+    u.cd = GUARD.cd
+    u.swingT = S.t
+    if (S.fx.length < FXMAX) S.fx.push({ k: 'bash', x: u.x, y: u.y - 4, vx: 0, vy: 0, t: 0, life: 0.14, ang: Math.atan2(dy0, dx0), r: GUARD.bashR, half: GUARD.bashHalf })
+    let hit = false
+    for (const e of S.actE) {
+      if (e.hp <= 0) continue
+      const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy)
+      if (d > GUARD.bashR + e.rad) continue
+      if (d > e.rad && (dx * dx0 + dy * dy0) / d < Math.cos(GUARD.bashHalf)) continue
+      stagger(e, u)
+      hurtEnemy(e, dmgOf(u, GUARD.bashMul), u)
+      if (e.hp > 0) knock(e, dx0, dy0, GUARD.bashKb)
+      e.flash = 0.16
+      hit = true
+    }
+    if (hit) hitFeel(GUARD.bashStop, true)
+  }
+  // 僧侶: いちばん傷の深い仲間（体力の割合がいちばん少ない。自分も）へ、追いかける癒やしの光
+  function healBolt(u) {
+    let best = null, br = 1
+    for (const a of S.actA) {
+      if (!a.alive || Math.hypot(a.x - u.x, a.y - u.y) > PRAY.range) continue
+      const r = a.hp / a.maxhp
+      if (r < br) { br = r; best = a }
+    }
+    u.cd = PRAY.cd
+    u.swingT = S.t
+    if (!best) { num(u.x, u.y - 22, 'OK', 'gr5'); return }   // みんな元気
+    S.projs.push({ kind: 'healbolt', team: 'heal', x: u.x, y: u.y - 8, vx: 0, vy: -PRAY.boltSpeed, target: best, amount: PRAY.bolt * lvMul(u.lvl), life: 2.5, spin: 0, hit: new Set(), r: 4, by: u })
+  }
+  // 僧侶: 足元の癒やしの円。中の仲間を少しずつ治し（数字はまとめて出す）、入ってきた敵の弾を消す
+  function prayCircle(u, dt) {
+    const amt = PRAY.rate * lvMul(u.lvl) * dt
+    for (const a of S.actA) {
+      if (!a.alive || a.hp >= a.maxhp || Math.hypot(a.x - u.x, a.y - u.y) > PRAY.r) continue
+      const h = Math.min(amt, a.maxhp - a.hp)
+      a.hp += h
+      a.healAcc = (a.healAcc ?? 0) + h
+      if (a.healAcc >= 3) { num(a.x, a.y - 8, `+${Math.round(a.healAcc)}`, 'gr5'); a.healAcc = 0 }
+    }
+    for (const p of S.projs) if (p.team === 'enemy' && Math.hypot(p.x - u.x, p.y + 4 - u.y) < PRAY.r) { p.life = 0; spark(p.x, p.y, 'gr5', 4, 30) }
+    if (Math.random() < 0.5) spark(u.x + rnd(-PRAY.r, PRAY.r) * 0.8, u.y + rnd(-PRAY.r, PRAY.r) * 0.5, 'gr5', 1, 12)
+  }
   function hitFeel(stop, shake) {
     S.hitstop = Math.max(S.hitstop, stop)
-    if (shake) S.shakeT = 0.15
+    if (shake) { S.shakeT = 0.12; S.shakeAmp = Math.max(S.shakeT > 0 ? S.shakeAmp ?? 0 : 0, SWING.shake) }
   }
   // 振った向きへ押し出す。重い敵ほど動かない
   function knock(e, ca, sa, kb = SWING.kb) {
@@ -351,6 +517,33 @@ export function createSim(opts = {}) {
     u.swingT = S.t
     if (strong) { ring(u.x, u.y - 4, 'white', 10, 0.2); spark(u.x + u.fx * 8, u.y - 4 + u.fy * 8, 'white', 5, 60) }
   }
+  // 盗賊のナイフ: 向いている方を素早く刺す。背後からは back 倍（CRIT）。檻も刺して開ける（速い）
+  function stab(u) {
+    u.cd = STAB.cd
+    u.swingT = S.t
+    const ang = Math.atan2(u.fy, u.fx), ca = Math.cos(ang), sa = Math.sin(ang)
+    if (S.fx.length < FXMAX) S.fx.push({ k: 'stab', x: u.x, y: u.y - 4, vx: 0, vy: 0, t: 0, life: 0.09, ang, r: STAB.r })
+    let best = null, bd = Infinity
+    for (const e of S.actE) {                      // ナイフは 1 体だけ: 正面のいちばん近い敵
+      if (e.hp <= 0) continue
+      const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy)
+      if (d > STAB.r + e.rad) continue
+      if (d > e.rad && (dx * ca + dy * sa) / d < Math.cos(STAB.half)) continue
+      if (d < bd) { bd = d; best = e }
+    }
+    if (best) {
+      const crit = behind(u, best)
+      if (crit) bossOpening(best, u)
+      hurtEnemy(best, dmgOf(u, crit ? (best.kind === 'boss' ? STAB.bossBack : STAB.back) : 1), u, crit)
+      best.flash = 0.16
+      spark(best.x, best.y - 5, crit ? 'ye3' : 'white', crit ? 6 : 3, 50)
+      if (crit) num(best.x, best.y - best.rad - 12, 'CRIT', 'ye3')
+      if (best.hp > 0) knock(best, ca, sa, STAB.kb)
+      hitFeel(crit ? STAB.critStop : STAB.stop, crit)
+    }
+    const c = nearestCage(u.x, u.y, 26)
+    if (c) bashCage(u, c)
+  }
   function swing(u) {
     u.cd = SWING.cd
     u.swingT = S.t
@@ -383,7 +576,7 @@ export function createSim(opts = {}) {
     const ca = Math.cos(ang), sa = Math.sin(ang)
     for (const e of S.actE) {
       if (e.hp <= 0 || !hitsBody(e)) continue
-      const broke = stagger(e)
+      const broke = stagger(e, u)
       hurtEnemy(e, dmg, u)
       e.flash = 0.16
       // 斬った跡：振った向きに斜めの白い線
@@ -399,22 +592,7 @@ export function createSim(opts = {}) {
       }
     }
     // 飛んできた弾は、撃った敵へ弾き返す（撃った敵がいなければ、振った向きへ）
-    for (const p of S.projs) {
-      if (p.team !== 'enemy' || !inArc(p.x, p.y + 4, SWING.deflect)) continue
-      const src = p.by && p.by.hp > 0 ? p.by : null
-      const a = src ? Math.atan2(src.y - 4 - p.y, src.x - p.x) : ang
-      const sp = Math.max(160, Math.hypot(p.vx, p.vy) * 1.8)
-      p.vx = Math.cos(a) * sp
-      p.vy = Math.sin(a) * sp
-      p.team = 'ally'
-      p.by = u
-      p.dmg = Math.max(p.dmg * SWING.back, dmg * 2)
-      p.hit = new Set()
-      p.life = 1.6
-      p.splash = 0
-      p.deflected = true
-      spark(p.x, p.y, 'white', 5, 50)
-    }
+    for (const p of S.projs) if (p.team === 'enemy' && inArc(p.x, p.y + 4, SWING.deflect)) deflectProj(p, u, ang)
     const c = nearestCage(u.x, u.y, 30)
     if (c && inArc(c.x, c.y, 30)) bashCage(u, c)
     slash.hit = S.hitstop > 0                        // 何かに当たった振りは、弧を太く明るく
@@ -445,8 +623,10 @@ export function createSim(opts = {}) {
     }
     return best
   }
+  // 敵の背後にいるか（敵は左右どちらかを向いている。向いていない側から）
+  const behind = (u, e) => (u.x - e.x) * (e.face || 1) < -2
   function bashCage(u, c) {
-    c.hp -= Math.max(2, JOBS[u.job].atk) * lvMul(u.lvl)
+    c.hp -= Math.max(2, JOBS[u.job].atk) * lvMul(u.lvl) * (JOBS[u.job].unlock ?? 1)   // 盗賊は速く開ける
     c.flash = 0.1
     spark(c.x, c.y, 'br5', 3)
     if (c.hp <= 0) openCage(c)
@@ -592,7 +772,7 @@ export function createSim(opts = {}) {
         for (let k = bodyHead[j * MW + i]; k >= 0; k = bodyNext[k]) if (bodies[k].def) near.push(bodies[k])
       }
     }
-    const LEADER_MASS = JOBS[u.job].taunt ? SHIELD_MASS : ALLY_MASS, LEADER_R = ALLY_R
+    const LEADER_MASS = JOBS[u.job].taunt ? SHIELD_MASS : JOBS[u.job].heavy ? SMASH.mass : ALLY_MASS, LEADER_R = ALLY_R
     for (const e of near) {
       if (e.hp <= 0 || e.def.atk === 'flyer') continue
       const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy), min = LEADER_R + e.rad
@@ -606,18 +786,131 @@ export function createSim(opts = {}) {
       if (left > 0) { moveBody(u, -nx * left, 0); moveBody(u, 0, -ny * left) }
     }
   }
-  // 自動で狙う相手: 届く範囲の敵のうち、近いもの（向いている方を少し優先）。返す: 向き [x, y] か null
-  function autoAim(u, range) {
+  // ブーメランの輪（しずく形）の上の場所（th は 0〜2π）。行きは向きの左側、奥（th = π）で折り返し、帰りは右側。最後の home の割合は、投げた人の今いる所へ寄せる
+  function boomLoopAt(L, th, by) {
+    const D = L.D, W = D * BOOMER.wide * 0.5
+    const f = (D / 2) * (1 - Math.cos(th)), sd = -W * 1.55 * Math.sin(th) * (1 - Math.cos(th)) / 2   // しずく形: 手元はとがり、まず前へ出る
+    let x = L.sx + L.dx * f - L.dy * sd, y = L.sy + L.dy * f + L.dx * sd
+    const h0 = 2 * Math.PI * (1 - BOOMER.home)
+    if (by && th > h0) {
+      const k = (th - h0) / (2 * Math.PI - h0), s2 = k * k * (3 - 2 * k)
+      x += (by.x - L.sx) * s2
+      y += (by.y - 4 - L.sy) * s2
+    }
+    return [x, y]
+  }
+  // 向き dir の先の敵（向きから 0.45 ラジアン以内で、いちばん近いもの）
+  function rayTarget(u, [ax, ay], range) {
+    let best = null, bd = Infinity
+    for (const e of S.actE) {
+      if (e.hp <= 0) continue
+      const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy)
+      if (d > range + e.rad || d < 0.01 || (dx * ax + dy * ay) / d < Math.cos(0.45)) continue
+      if (d < bd) { bd = d; best = e }
+    }
+    return best
+  }
+  // 雷の連鎖（操作キャラ）: first から n 体まで、近い敵へ跳ぶ（hop まで。凍った敵からは 2 倍）。凍った敵は砕ける
+  function chainBolt(u, first, n, hop, big) {
+    const pts = [[u.x, u.y - 8]], hit = new Set()
+    let cur = first, m = CHAIN.mul
+    for (let i = 0; i < n && cur; i++) {
+      hit.add(cur)
+      pts.push([cur.x, cur.y - 4])
+      const reach = cur.frozen > 0 ? hop * 2 : hop        // 凍った敵は雷をよく通す
+      hurtEnemy(cur, dmgOf(u, m), u)
+      cur.flash = 0.16
+      spark(cur.x, cur.y - 5, 'ye3', 4, 50)
+      m *= CHAIN.decay
+      let next = null, nd = reach
+      for (const e of S.actE) {
+        if (e.hp <= 0 || hit.has(e)) continue
+        const dd = Math.hypot(e.x - cur.x, e.y - cur.y)
+        if (dd < nd) { nd = dd; next = e }
+      }
+      cur = next
+    }
+    if (S.fx.length < FXMAX) S.fx.push({ k: 'zap', x: 0, y: 0, vx: 0, vy: 0, t: 0, life: big ? 0.3 : 0.2, pts, big })
+    if (hit.size > 2) num(first.x, first.y - first.rad - 12, `x${hit.size}`, 'ye3')
+    hitFeel(big || hit.size > 3 ? CHAIN.bigStop : CHAIN.stop, big)
+  }
+  // ハンマーの振り下ろし: 向いている方の扇の敵に、重い一撃。大きく吹き飛ばし、予兆の最中ならよろけさせる。見た目は斬撃の弧ではなく、前の地面への衝撃
+  function hammerSmash(u) {
+    u.cd = SMASH.cd
+    u.swingT = S.t
+    const ang = Math.atan2(u.fy, u.fx), ca = Math.cos(ang), sa = Math.sin(ang)
+    const impact = { k: 'impact', x: u.x + ca * 14, y: u.y + sa * 10, vx: 0, vy: 0, t: 0, life: 0.22, hit: false }   // 体の前の地面に叩きつけた衝撃
+    if (S.fx.length < FXMAX) S.fx.push(impact)
+    let hit = false
+    for (const e of S.actE) {
+      if (e.hp <= 0) continue
+      const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy)
+      if (d > SMASH.r + e.rad) continue
+      if (d > e.rad && (dx * ca + dy * sa) / d < Math.cos(SMASH.half)) continue
+      stagger(e, u)
+      hurtEnemy(e, dmgOf(u, SMASH.mul), u)
+      if (e.hp > 0) knock(e, ca, sa, SMASH.kb)
+      e.flash = 0.18
+      hit = true
+    }
+    impact.hit = hit
+    spark(u.x + ca * 14, u.y + sa * 10, 'br5', 8, 55)   // 地面を打った土ぼこり
+    if (hit) hitFeel(SMASH.stop, true)
+    const c = nearestCage(u.x, u.y, 30)
+    if (c) bashCage(u, c)
+  }
+  // ハンマーで地面を叩く: k（溜め 0〜1）で広がる衝撃波。範囲の敵を全員よろけさせ、外へ吹き飛ばす
+  function groundSlam(u, k) {
+    u.cd = SMASH.cd + 0.3
+    u.swingT = S.t
+    const R = SMASH.slamR + (SMASH.slamMax - SMASH.slamR) * k
+    const mul = SMASH.slamMul + (SMASH.slamMulMax - SMASH.slamMul) * k, stun = SMASH.stun + (SMASH.stunMax - SMASH.stun) * k
+    if (S.fx.length < FXMAX) S.fx.push({ k: 'quake', x: u.x, y: u.y, vx: 0, vy: 0, t: 0, life: 0.35, r: R })
+    spark(u.x, u.y, 'br5', 16, 90)
+    let hit = false
+    for (const e of S.actE) {
+      if (e.hp <= 0) continue
+      const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy)
+      if (d > R + e.rad * 0.6) continue
+      hurtEnemy(e, dmgOf(u, mul), u)
+      if (e.hp <= 0) continue
+      if (!(e.kind === 'boss' && k >= 1 && bossOpening(e, u))) stunEnemy(e, e.kind === 'boss' ? stun * 0.5 : stun)   // 溜めきった地面叩きは、ボスの隙になる
+      const m = d || 1
+      knock(e, dx / m, dy / m, SMASH.slamKb * (1 - 0.5 * Math.min(1, d / R)))
+      e.flash = 0.18
+      hit = true
+    }
+    S.hitstop = Math.max(S.hitstop, hit ? 0.12 : 0.05)
+    S.shakeT = 0.3
+    S.shakeAmp = 2                                 // 地面を叩いたときだけ、大きく揺らす
+  }
+  // 敵を凍らせる
+  function freezeEnemy(e, dur = null) {
+    if (e.kind === 'boss' && S.t < (e.freezeOk ?? 0)) return   // ボスは、凍りが解けてから FREEZE.bossCool 秒は凍らない
+    e.frozen = dur != null ? (e.kind === 'boss' ? dur * 0.5 : dur) : e.kind === 'boss' ? FREEZE.bossDur : FREEZE.dur
+    e.tele = null
+    e.kbT = 0
+    ring(e.x, e.y, 'bl5', e.rad + 8, 0.3)
+    spark(e.x, e.y - 5, 'white', dur != null ? 3 : 8, 60)
+    if (dur == null) num(e.x, e.y - e.rad - 12, 'FREEZE', 'bl5')   // 自律の氷術師の短い凍りでは、文字は出さない
+  }
+  // 自動で狙う相手: 届く範囲の敵のうち、近いもの（向いている方を少し優先）。autoAim はその向き [x, y] か null
+  function autoTarget(u, range = FREEZE.range) {
     let best = null, bs = Infinity
     for (const e of S.actE) {
       if (e.hp <= 0) continue
       const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy)
       if (d > range + e.rad || d < 0.01) continue
-      const cos = (dx * u.fx + dy * u.fy) / d
-      const score = d * (1.6 - 0.6 * cos)
-      if (score < bs) { bs = score; best = [dx / d, dy / d] }
+      const score = d * (1.6 - 0.6 * ((dx * u.fx + dy * u.fy) / d))
+      if (score < bs) { bs = score; best = e }
     }
     return best
+  }
+  function autoAim(u, range) {
+    const e = autoTarget(u, range)
+    if (!e) return null
+    const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy)
+    return [dx / d, dy / d]
   }
   function faceTo(u, [x, y]) {
     const m = Math.hypot(x, y) || 1
@@ -633,7 +926,7 @@ export function createSim(opts = {}) {
     if (mag > 1) { mx /= mag; my /= mag }
     u.moving = false
     if (mag > 0.05) {
-      const sp = J.speed * (u.charge != null ? SHOOT.slow : 1)   // 弓を引いている間は遅い
+      const sp = J.speed * (u.hamCast || u.hamWind > 0 ? SMASH.slow : u.charge != null ? SHOOT.slow : u.guarding ? GUARD.slow : u.throwing ? THROW.slow : u.praying ? 0 : u.casting && S.t - u.castT > SHOOT.tap ? FREEZE.slow : u.boomCast && S.t - u.boomT > SHOOT.tap ? BOOMER.slow : u.voltCast && S.t - u.voltT > SHOOT.tap ? CHAIN.slow : 1)   // 弓を引く・盾を構える・爆弾を狙う間は遅い
       moveBody(u, mx * sp * dt, 0)
       moveBody(u, 0, my * sp * dt)
       u.moving = true
@@ -655,6 +948,171 @@ export function createSim(opts = {}) {
       u.aiming = bow && (inp.hold || u.charge != null)   // 狙うのは弓だけ（剣は向いている方へ振る）
       u.aimLine = bow && (!!inp.aim || drawing)        // 狙いの線は、ずらして狙っているときと、引き絞っているときだけ
       if (u.aiming) u.aimDir = dir()
+      if (J.kind === 'boomerang') {                // ブーメラン: 戻ってくるまで投げられない。ちょん押しは近くの敵の少し先まで、長押しは押した長さで遠くまで（弓と同じ射線）
+        u.boomOut = S.projs.some((q) => q.kind === 'boom' && q.manual && q.by === u && q.life > 0)
+        if (!u.boomCast && !u.boomOut && (inp.hold || S.t - (u.pressReq ?? -9) < 0.15)) { u.pressReq = -9; u.boomCast = true; u.boomT = S.t }
+        if (u.boomCast) {
+          const long = S.t - u.boomT > SHOOT.tap
+          const tg = !inp.aim && !(long && u.lastAim) ? autoTarget(u, BOOMER.max) : null
+          const dir = inp.aim ?? (long ? u.lastAim : null) ?? (tg ? [tg.x - u.x, tg.y - u.y].map((v, i, a) => v / Math.hypot(...a)) : [u.fx, u.fy])
+          const k = long ? Math.min(1, (S.t - u.boomT - SHOOT.tap) / BOOMER.charge) : 0
+          u.boomDist = long ? BOOMER.min + (BOOMER.max - BOOMER.min) * k
+            : tg ? Math.min(BOOMER.max, Math.max(BOOMER.min, Math.hypot(tg.x - u.x, tg.y - u.y) + BOOMER.over)) : BOOMER.min
+          u.aimLine = long
+          u.aimDir = dir
+          if (!inp.hold) {
+            if (inp.aim) u.lastAim = inp.aim
+            faceTo(u, dir)
+            shoot(u, u.x + dir[0] * 100, u.y + dir[1] * 100, dmgOf(u, BOOMER.mul), { team: 'ally', speed: BOOMER.speed, life: 6, kind: 'boom', r: 7, pierce: 999, maxd: u.boomDist })
+            const p = S.projs[S.projs.length - 1]
+            p.manual = true
+            p.loop = { sx: u.x, sy: u.y - 4, dx: dir[0], dy: dir[1], D: u.boomDist, th: 0 }   // 輪を描いて飛ぶ
+            u.swingT = S.t
+            u.boomCast = false
+            u.aimLine = false
+            inp.aim = null
+          }
+        }
+        u.aiming = u.boomCast && S.t - u.boomT > SHOOT.tap
+        return
+      }
+      if (J.heavy) {                               // ハンマー: ちょん押しは、ためてから振り下ろす。長押しは溜めて、離すと地面を叩く
+        if (u.hamWind > 0) {                       // 振り下ろしの前のため
+          u.hamWind -= dt
+          if (u.hamWind <= 0) hammerSmash(u)
+          return
+        }
+        if (!u.hamCast && u.cd <= 0 && (inp.hold || S.t - (u.pressReq ?? -9) < 0.15)) { u.pressReq = -9; u.hamCast = true; u.hamT = S.t }
+        if (u.hamCast) {
+          const long = S.t - u.hamT > SHOOT.tap
+          u.gauge = long ? Math.min(1, (S.t - u.hamT - SHOOT.tap) / SMASH.charge) : null
+          if (!inp.hold) {
+            if (long) groundSlam(u, u.gauge)
+            else u.hamWind = SMASH.wind
+            u.hamCast = false
+            u.gauge = null
+          }
+        }
+        return
+      }
+      if (J.kind === 'lightning') {               // 雷術師: ちょん押しは近くの敵へ雷、長押しは射線で溜めて、離すと狙った向きの敵へ。溜まるほど連鎖が伸びる
+        if (!u.voltCast && u.cd <= 0 && (inp.hold || S.t - (u.pressReq ?? -9) < 0.15)) { u.pressReq = -9; u.voltCast = true; u.voltT = S.t }
+        if (u.voltCast) {
+          const long = S.t - u.voltT > SHOOT.tap
+          const dir = inp.aim ?? (long ? u.lastAim : null) ?? autoAim(u, CHAIN.range) ?? [u.fx, u.fy]
+          const k = long ? Math.min(1, (S.t - u.voltT - SHOOT.tap) / CHAIN.charge) : 0
+          u.gauge = long ? k : null
+          u.aimLine = long
+          u.aimDir = dir
+          if (!inp.hold) {
+            if (inp.aim) u.lastAim = inp.aim
+            faceTo(u, dir)
+            const first = long ? rayTarget(u, dir, CHAIN.range) : autoTarget(u, CHAIN.range)
+            if (first) chainBolt(u, first, Math.round(CHAIN.n + (CHAIN.fullN - CHAIN.n) * k), CHAIN.hop + (CHAIN.fullHop - CHAIN.hop) * k, k >= 1)
+            else num(u.x, u.y - 22, '...', 'gy5')
+            u.cd = CHAIN.cd
+            u.swingT = S.t
+            u.voltCast = false
+            u.gauge = null
+            u.aimLine = false
+            inp.aim = null
+          }
+        }
+        u.aiming = u.voltCast && S.t - u.voltT > SHOOT.tap
+        return
+      }
+      if (J.kind === 'magic') {                    // 氷術師: ちょん押しは近くの敵へ追いかけるツララ。長押しは弓と同じく射線を出して溜め、離すとその向きへ（溜まれば冷気の弾で凍らせる）
+        if (!u.casting && u.cd <= 0 && (inp.hold || S.t - (u.pressReq ?? -9) < 0.15)) { u.pressReq = -9; u.casting = true; u.castT = S.t }
+        if (u.casting) {
+          const long = S.t - u.castT > SHOOT.tap
+          const dir = inp.aim ?? (long ? u.lastAim : null) ?? autoAim(u, FREEZE.range) ?? [u.fx, u.fy]
+          u.castReady = long && S.t - u.castT >= SHOOT.tap + FREEZE.charge
+          u.aimLine = long
+          u.aimDir = dir
+          if (!inp.hold) {
+            if (inp.aim) u.lastAim = inp.aim           // ずらして狙った向きを覚える
+            faceTo(u, dir)
+            const tx = u.x + dir[0] * 100, ty = u.y + dir[1] * 100
+            if (u.castReady) shoot(u, tx, ty, 0, { team: 'ally', speed: FREEZE.boltSpeed, life: FREEZE.range / FREEZE.boltSpeed + 0.1, kind: 'frostbolt', r: 6 })
+            else {
+              shoot(u, tx, ty, dmgOf(u, FREEZE.icicle), { team: 'ally', speed: FREEZE.icicleSpeed, life: FREEZE.range / FREEZE.icicleSpeed + 0.2, kind: 'icicle', r: 5 })
+              if (!long) S.projs[S.projs.length - 1].target = autoTarget(u)   // ちょん押しのツララは、近くの敵を追いかける
+            }
+            S.projs[S.projs.length - 1].manual = true
+            u.cd = FREEZE.cd
+            u.swingT = S.t
+            u.casting = u.castReady = false
+            u.aimLine = false
+            inp.aim = null
+          }
+        }
+        u.aiming = u.casting && S.t - u.castT > SHOOT.tap
+        return
+      }
+      if (J.kind === 'heal') {                     // 僧侶: ちょん押しは癒やしの光、長押しは足元に癒やしの円（離すか max 秒で終わる）
+        if (u.needRelease && !inp.hold) u.needRelease = false
+        if (!u.prayPend && !u.needRelease && u.cd <= 0 && (inp.hold || S.t - (u.pressReq ?? -9) < 0.15)) { u.pressReq = -9; u.prayPend = true; u.prayT = S.t }
+        if (u.prayPend) {
+          const long = S.t - u.prayT > SHOOT.tap
+          u.praying = long && inp.hold
+          const over = S.t - u.prayT > SHOOT.tap + PRAY.max
+          if (!inp.hold || over) {
+            if (!long) healBolt(u)
+            else u.cd = PRAY.after
+            if (over) u.needRelease = true             // 押したままなら、一度離すまで次は始めない
+            u.prayPend = u.praying = false
+          }
+        }
+        if (u.praying) prayCircle(u, dt)
+        u.aiming = false
+        u.aimLine = false
+        return
+      }
+      if (J.kind === 'bomb') {                     // 爆弾: 押したら狙い始め、押している間は落とす場所を狙い、離したら投げる
+        if (!u.throwing && u.cd <= 0 && (inp.hold || S.t - (u.pressReq ?? -9) < 0.15)) { u.pressReq = -9; u.throwing = true; u.throwT = S.t }
+        if (u.throwing) {
+          const long = S.t - u.throwT > SHOOT.tap
+          // 落とす場所: 指定（ずらした・マウス）、長押しなら前に狙った所（自分からの位置）、無ければ近くの敵、無ければ向いている方の少し先
+          let tx, ty
+          if (inp.target) [tx, ty] = [inp.target.x, inp.target.y]
+          else if (long && u.lastThrow) [tx, ty] = [u.x + u.lastThrow[0], u.y + u.lastThrow[1]]
+          else {
+            const e = nearestEnemy(u.x, u.y, THROW.range)
+            ;[tx, ty] = e ? [e.x, e.y] : [u.x + u.fx * 60, u.y + u.fy * 60]
+          }
+          const dx = tx - u.x, dy = ty - u.y, d = Math.hypot(dx, dy) || 1, k = Math.min(1, THROW.range / d)
+          u.throwAt = [u.x + dx * k, u.y + dy * k]
+          u.aimLine = long || !!inp.target
+          if (!inp.hold) {
+            if (inp.target) u.lastThrow = [u.throwAt[0] - u.x, u.throwAt[1] - u.y]
+            faceTo(u, [dx, dy])
+            S.blasts.push({ x: u.throwAt[0], y: u.throwAt[1], sx: u.x, sy: u.y - 4, r: THROW.r, dmg: dmgOf(u, THROW.mul), team: 'ally', by: u,
+              t: THROW.flight + THROW.fuse, flight: THROW.flight, total: THROW.flight + THROW.fuse, kb: THROW.kb })
+            u.cd = THROW.cd
+            u.swingT = S.t
+            u.throwing = false
+            u.aimLine = false
+            inp.target = null
+          }
+        }
+        u.aiming = false
+        return
+      }
+      if (J.taunt) {                               // 盾: 押したら構え、押している間は構えたまま、離したら盾で押す
+        if (!u.guardOn && u.cd <= 0 && (inp.hold || S.t - (u.pressReq ?? -9) < 0.15)) {
+          u.pressReq = -9
+          u.guardOn = true
+          u.guardT = S.t
+          u.guardDir = inp.aim ?? autoAim(u, 90) ?? [u.fx, u.fy]   // 構える向き: ずらして狙った向き、無ければ近くの敵、無ければ向いている方
+        }
+        if (u.guardOn && inp.aim) u.guardDir = inp.aim
+        u.guarding = u.guardOn && inp.hold
+        if (u.guardOn) faceTo(u, u.guardDir)       // 構えている間は、盾の向きを向いたまま（後ろへ下がっても）
+        if (u.guardOn && !inp.hold) { bash(u); u.guardOn = false; u.guarding = false; inp.aim = null }
+        u.aiming = false
+        u.aimLine = false
+        return
+      }
       if (bow) {                                   // 弓: 押したら引き始め、押している間は引き絞り、離したら射る
         if (u.charge == null && u.cd <= 0 && (inp.hold || S.t - (u.pressReq ?? -9) < 0.15)) { u.pressReq = -9; u.charge = 0 }
         if (u.charge != null) {
@@ -670,10 +1128,11 @@ export function createSim(opts = {}) {
         }
         return
       }
-      // 剣: 押した瞬間に、向いている方へ振る（ボタンでも Z でも）
+      // 剣・盗賊: 押した瞬間に、向いている方へ振る・刺す（ボタンでも Z でも）
       if (u.cd <= 0 && S.t - (u.pressReq ?? -9) < 0.15) {
         u.pressReq = -9
-        swing(u)
+        if (J.backstab) stab(u)
+        else swing(u)
       }
       u.swingReq = -9
       inp.aim = null
@@ -684,7 +1143,7 @@ export function createSim(opts = {}) {
     if (u.cd > 0) return
     if (J.kind === 'heal') { healPulse(u); return }
     const e = nearestEnemy(u.x, u.y, J.range + 2)
-    if (e && (J.kind === 'bomb' || J.kind === 'melee' || J.kind === 'pierce' || J.kind === 'lightning' || clearLine(u.x, u.y, e.x, e.y))) attackWith(u, e)
+    if (e && (J.kind === 'bomb' || J.kind === 'melee' || J.kind === 'lightning' || clearLine(u.x, u.y, e.x, e.y))) attackWith(u, e)
     else if (!e) {
       const c = nearestCage(u.x, u.y, 28)
       if (c) { u.cd = J.cd || 0.6; bashCage(u, c) }
@@ -725,7 +1184,7 @@ export function createSim(opts = {}) {
       }
     }
     if (!hit) { u.dodgeAt = 0; return null }
-    if (!u.dodgeAt) u.dodgeAt = S.t + 0.1 + Math.random() * 0.35 + (u.lvl < 3 ? 0.15 : 0)
+    if (!u.dodgeAt) u.dodgeAt = S.t + (JOBS[u.job].backstab ? 0.05 : 0.1) + Math.random() * (JOBS[u.job].backstab ? 0.15 : 0.35)   // 盗賊は身軽（すぐ避ける） + (u.lvl < 3 ? 0.15 : 0)
     if (S.t < u.dodgeAt) return null
     if (!ex && !ey) { ex = rnd(-1, 1); ey = rnd(-1, 1) }
     return [ex, ey]
@@ -965,7 +1424,7 @@ export function createSim(opts = {}) {
       if (!a.alive) continue
       const d = Math.hypot(a.x - e.x, a.y - e.y)
       if (d > range) continue
-      const w = JOBS[a.job].taunt ? d * 0.65 : d
+      const w = a.guarding ? d * GUARD.taunt : JOBS[a.job].taunt ? d * 0.65 : d   // 盾は狙われやすい（構えていると、もっと）
       if (w < td) { td = w; tgt = a }
     }
     return tgt
@@ -977,6 +1436,13 @@ export function createSim(opts = {}) {
     e.anim += dt
     e.flash -= dt
     e.tele = null
+    if (e.frozen > 0) {                            // 凍っている: 動かず、攻撃もしない（予兆も止まる）
+      e.frozen -= dt
+      e.tele = null
+      if (e.kind === 'boss') { if (e.pstate === 'wind' || e.pstate === 'act') e.pstate = 'stun' } else if (e.state === 'wind' || e.state === 'act') e.state = 'recover'
+      if (e.frozen <= 0) { spark(e.x, e.y - 5, 'bl5', 6, 40); if (e.kind === 'boss') e.freezeOk = S.t + FREEZE.bossCool }
+      return
+    }
     if (e.kind === 'boss') return updateBoss(e, dt)
     if (e.kbT > 0) return updateKnock(e, dt)
     if (e.state === 'stun') { // 予兆を斬られて止まっている
@@ -1013,7 +1479,7 @@ export function createSim(opts = {}) {
       e.actT -= dt
       stepEnemy(e, e.dvx, e.dvy, D.dash ?? 190, dt)
       for (const a of S.actA) {
-        if (a.alive && !e.hitSet.has(a) && Math.hypot(a.x - e.x, a.y - e.y) < e.rad + 6) { e.hitSet.add(a); hurtAlly(a, D.dmg, e.kind) }
+        if (a.alive && !e.hitSet.has(a) && Math.hypot(a.x - e.x, a.y - e.y) < e.rad + 6) { e.hitSet.add(a); hurtAlly(a, D.dmg, e.kind, e, e) }
       }
       if (e.actT <= 0) { e.state = 'recover'; e.cdT = D.cd }
       return
@@ -1076,13 +1542,13 @@ export function createSim(opts = {}) {
     e.cdT = D.cd
     switch (D.atk) {
       case 'melee': case 'flyer':
-        for (const al of S.actA) if (al.alive && Math.hypot(al.x - e.x, al.y - e.y) < D.reach + 6) { hurtAlly(al, D.dmg, e.kind); break }
+        for (const al of S.actA) if (al.alive && Math.hypot(al.x - e.x, al.y - e.y) < D.reach + 6) { hurtAlly(al, D.dmg, e.kind, e, e); break }
         spark(e.x + a.ux * 8, e.y - 4 + a.uy * 8, 'rd4', 3, 30)
         break
       case 'slam':
         ring(e.x, e.y, 'br5', D.reach, 0.35)
         spark(e.x, e.y, 'br4', 10, 70)
-        for (const al of S.actA) if (al.alive && Math.hypot(al.x - e.x, al.y - e.y) < D.reach + 4) hurtAlly(al, D.dmg, e.kind)
+        for (const al of S.actA) if (al.alive && Math.hypot(al.x - e.x, al.y - e.y) < D.reach + 4) hurtAlly(al, D.dmg, e.kind, e, e)
         break
       case 'charge':
         e.state = 'act'
@@ -1111,7 +1577,9 @@ export function createSim(opts = {}) {
 
   // --- ラスボス ---
   function spawnBoss() {
-    const D = { ...BOSS, shape: 'boss', atk: 'boss', xp: 3000, reach: 30, aggro: 230, wind: 0, cd: 0, dmg: 0, cost: 0 }
+    const sc = (a) => ({ ...a, dmg: Math.round(a.dmg * DIFF.bossDmg), ...(a.wind ? { wind: a.wind * DIFF.wind } : {}) })
+    const D = { ...BOSS, hpBase: BOSS.hpBase * DIFF.boss, hpPerAlly: BOSS.hpPerAlly * DIFF.boss, slam: sc(BOSS.slam), fan: sc(BOSS.fan), charge: sc(BOSS.charge), rain: sc(BOSS.rain),
+      shape: 'boss', atk: 'boss', xp: 3000, reach: 30, aggro: 230, wind: 0, cd: 0, dmg: 0, cost: 0 }
     const e = newEnemy('boss', world.boss.x, world.boss.y, -2, D)
     e.rad = 24
     e.pstate = 'move'
@@ -1127,12 +1595,13 @@ export function createSim(opts = {}) {
   const bossPhase = (b) => (b.hp > b.maxhp * 0.66 ? 1 : b.hp > b.maxhp * 0.33 ? 2 : 3)
   function updateBoss(b, dt) {
     const D = b.def
+    if (b.breakT > 0) { b.breakT -= dt; if (b.flash <= 0 && Math.floor(S.t * 10) & 1) b.flash = 0.05 }
     const phase = bossPhase(b)
     // 闘技場の中にいる仲間だけを相手にする
     let tgt = null, td = Infinity
     for (const a of S.actA) {
       if (!a.alive || !inArena(a)) continue
-      const d = Math.hypot(a.x - b.x, a.y - b.y) * (JOBS[a.job].taunt ? 0.65 : 1)
+      const d = Math.hypot(a.x - b.x, a.y - b.y) * (a.guarding ? GUARD.taunt : JOBS[a.job].taunt ? 0.65 : 1) * (a === S.leader ? BREAK.lead : 1)   // 操作キャラを狙いやすい
       if (d < td) { td = d; tgt = a }
     }
     if (!tgt) { b.pstate = 'move'; b.tele = null; return }
@@ -1170,8 +1639,9 @@ export function createSim(opts = {}) {
         if (b.atkKind === 'rain') {
           const n = D.rain.n + (phase === 3 ? 4 : 0)
           const cand = S.actA.filter((a) => a.alive && inArena(a))
+          const L = S.leader
           for (let i = 0; i < n; i++) {
-            const a = cand.length ? pick(cand) : tgt
+            const a = i < BREAK.leadRain && L?.alive && inArena(L) ? L : cand.length ? pick(cand) : tgt   // 何発かは操作キャラに
             const ang = rnd(0, 6.28), rr = rnd(0, 26)
             S.blasts.push({ x: a.x + Math.cos(ang) * rr, y: a.y + Math.sin(ang) * rr, r: D.rain.r, dmg: D.rain.dmg, team: 'enemy', by: b, t: b.pT, flight: 0, total: b.pT })
           }
@@ -1193,7 +1663,7 @@ export function createSim(opts = {}) {
         if (b.atkKind === 'slam') {
           ring(b.x, b.y, 'br5', D.slam.r, 0.4)
           spark(b.x, b.y, 'br4', 24, 110)
-          for (const al of S.actA) if (al.alive && Math.hypot(al.x - b.x, al.y - b.y) < D.slam.r + 4) hurtAlly(al, D.slam.dmg, 'boss-slam')
+          for (const al of S.actA) if (al.alive && Math.hypot(al.x - b.x, al.y - b.y) < D.slam.r + 4) hurtAlly(al, D.slam.dmg, 'boss-slam', b, b)
           b.pstate = 'recover'; b.pT = 0.9 * pf
         } else if (b.atkKind === 'fan') {
           const n = D.fan.n + (phase === 3 ? 4 : 0)
@@ -1221,7 +1691,7 @@ export function createSim(opts = {}) {
     if (b.pstate === 'act') { // 突進
       stepEnemy(b, b.dvx, b.dvy, D.charge.speed, dt)
       for (const a of S.actA) {
-        if (a.alive && !b.hitSet.has(a) && Math.hypot(a.x - b.x, a.y - b.y) < b.rad + 6) { b.hitSet.add(a); hurtAlly(a, D.charge.dmg, 'boss-charge') }
+        if (a.alive && !b.hitSet.has(a) && Math.hypot(a.x - b.x, a.y - b.y) < b.rad + 6) { b.hitSet.add(a); hurtAlly(a, D.charge.dmg, 'boss-charge', b, b) }
       }
       if (b.pT <= 0) { b.pstate = 'stun'; b.pT = 1.1; spark(b.x, b.y, 'ye2', 12, 60) }
       return
@@ -1241,7 +1711,7 @@ export function createSim(opts = {}) {
   function updateBlasts(dt) {
     for (const bl of S.blasts) {
       bl.t -= dt
-      if (bl.t <= 0) explode(bl.x, bl.y, bl.r, bl.dmg, bl.team, bl.by)
+      if (bl.t <= 0) explode(bl.x, bl.y, bl.r, bl.dmg, bl.team, bl.by, bl.kb ?? 0)
       else if (bl.team === 'enemy') S.hazards.push({ k: 'circle', x: bl.x, y: bl.y, r: bl.r, t: bl.t })
     }
     S.blasts = S.blasts.filter((b) => b.t > 0)
@@ -1252,8 +1722,40 @@ export function createSim(opts = {}) {
     for (const p of S.projs) {
       p.life -= dt
       p.spin += dt * 14
+      if (p.team === 'heal') {                     // 癒やしの光: 仲間を追いかけて、着いたら治す
+        const a = p.target
+        if (!a || !a.alive) { p.life = 0; continue }
+        const dx = a.x - p.x, dy = a.y - 6 - p.y, d = Math.hypot(dx, dy) || 1
+        const turn = Math.min(1, dt * 8)
+        p.vx += ((dx / d) * PRAY.boltSpeed - p.vx) * turn
+        p.vy += ((dy / d) * PRAY.boltSpeed - p.vy) * turn
+        p.x += p.vx * dt
+        p.y += p.vy * dt
+        if (d < 7) { healAlly(a, p.amount); ring(a.x, a.y, 'gr5', 12, 0.3); spark(a.x, a.y - 6, 'gr6', 6, 40); p.life = 0 }
+        continue
+      }
       if (p.strong && Math.random() < 0.7) spark(p.x - p.vx * 0.03, p.y - p.vy * 0.03, Math.random() < 0.5 ? 'or2' : 'ye2', 1, 25)   // 炎の矢の火の粉
-      if (p.kind === 'boom') {
+      if (p.kind === 'boom' && p.loop) {           // 自分で投げたブーメラン: 輪を描いて飛び、最後は投げた人の今いる所へ
+        const by = p.by
+        if (!by || !by.alive) { p.life = 0; continue }
+        const L = p.loop, at = (th) => boomLoopAt(L, th, by)
+        const [x0, y0] = at(L.th), [x1, y1] = at(Math.min(2 * Math.PI, L.th + 0.01))
+        const step = Math.max(L.D * 0.35, Math.hypot(x1 - x0, y1 - y0) / 0.01)   // 角度あたりの道のり（手元のとがった所で 0 にならないように）
+        const was = L.th
+        L.th = Math.min(2 * Math.PI, L.th + (BOOMER.speed * dt) / step)
+        if (was < Math.PI && L.th >= Math.PI) { p.phase = 1; p.hit.clear() }   // 奥で折り返し: 帰りでもう一度当たる
+        const [nx, ny] = at(L.th)
+        p.vx = (nx - p.x) / dt
+        p.vy = (ny - p.y) / dt
+        p.x = nx
+        p.y = ny
+        if (L.th >= 2 * Math.PI || (L.th > 1.6 * Math.PI && Math.hypot(by.x - p.x, by.y - 4 - p.y) < 9)) {
+          p.life = 0
+          spark(by.x, by.y - 6, 'ye3', 4, 30)
+          ring(by.x, by.y, 'ye2', 8, 0.2)
+          continue
+        }
+      } else if (p.kind === 'boom') {
         if (p.phase === 0) {
           p.x += p.vx * dt
           p.y += p.vy * dt
@@ -1263,11 +1765,21 @@ export function createSim(opts = {}) {
           if (!by || !by.alive) { p.life = 0; continue }
           const dx = by.x - p.x, dy = by.y - 4 - p.y
           const d = Math.hypot(dx, dy) || 1
-          if (d < 9) { p.life = 0; continue }
-          p.x += (dx / d) * 190 * dt
-          p.y += (dy / d) * 190 * dt
+          if (d < 9) {                             // 手元に戻った（自分で投げたものは、受け止めた印）
+            p.life = 0
+            if (p.manual) { spark(by.x, by.y - 6, 'ye3', 4, 30); ring(by.x, by.y, 'ye2', 8, 0.2) }
+            continue
+          }
+          const back = p.manual ? BOOMER.back : 190
+          p.x += (dx / d) * back * dt
+          p.y += (dy / d) * back * dt
         }
       } else {
+        if (p.target && p.target.hp > 0 && (p.kind === 'frostbolt' || p.kind === 'icicle')) {   // 氷術師の弾: 狙った敵を追いかける
+          const dx = p.target.x - p.x, dy = p.target.y - 6 - p.y, d = Math.hypot(dx, dy) || 1, sp = Math.hypot(p.vx, p.vy), turn = Math.min(1, dt * 10)
+          p.vx += ((dx / d) * sp - p.vx) * turn
+          p.vy += ((dy / d) * sp - p.vy) * turn
+        }
         p.x += p.vx * dt
         p.y += p.vy * dt
         if (solidAt(p.x, p.y + 4)) {
@@ -1283,11 +1795,17 @@ export function createSim(opts = {}) {
           if (e.hp <= 0 || p.hit.has(e)) continue
           if (Math.hypot(e.x - p.x, e.y - 4 - p.y) < p.r + e.rad) {
             p.hit.add(e)
-            if (p.kind === 'magic') { explode(p.x, p.y, p.splash, p.dmg, 'ally', p.by); p.life = 0; break }
-            hurtEnemy(e, p.dmg, p.by)
+            if (p.kind === 'magic') {                  // 自律の氷術師の玉: 直撃した敵を短く凍らせ（仲間が砕ける）、まわりにも当たる
+              if (p.by?.job === 'ice' && e.hp > 0 && e.kind !== 'boss') freezeEnemy(e, FREEZE.autoDur)   // ボスは、操作キャラの冷気でだけ凍る
+              explode(p.x, p.y, p.splash, p.dmg, 'ally', p.by); p.life = 0; break
+            }
+            if (p.kind === 'frostbolt') { freezeEnemy(e); if (e.frozen > 0) bossOpening(e, p.by); hitFeel(FREEZE.stop, false); p.life = 0; break }   // 冷気の弾: 当たった敵を凍らせる
+            if (p.strong && e.kind === 'boss' && e.pstate === 'wind') bossOpening(e, p.by)   // 予兆の最中のボスに、引き絞った矢
+            hurtEnemy(e, p.dmg, p.by, !!p.strong)      // 引き絞った矢は、硬い敵にも通る
             if (p.manual) {                            // 自分で射た矢: 短いヒットストップと、矢の向きへのノックバック
               const v = Math.hypot(p.vx, p.vy) || 1
-              if (e.hp > 0) knock(e, p.vx / v, p.vy / v, p.strong ? SHOOT.strongKb : SHOOT.kb)
+              const mv = p.kind === 'boom' && p.phase === 1 ? [p.by.x - p.x, p.by.y - p.y] : [p.vx, p.vy], mm = Math.hypot(...mv) || 1   // ブーメランの帰りは、戻る向きへ
+              if (e.hp > 0) knock(e, mv[0] / mm, mv[1] / mm, p.kind === 'boom' ? BOOMER.kb : p.strong ? SHOOT.strongKb : SHOOT.kb)
               hitFeel(p.strong ? SHOOT.strongStop : SHOOT.stop, p.strong && e.hp <= 0)
               e.flash = 0.16
             }
@@ -1299,6 +1817,11 @@ export function createSim(opts = {}) {
         for (const a of S.actA) {
           if (!a.alive) continue
           if (Math.hypot(a.x - p.x, a.y - 4 - p.y) < p.r + 4) {
+            // 盾で正面から受けた弾: ジャストなら撃った敵へ跳ね返す、ふつうは止める（少しだけ食らう）
+            const from = { x: p.x - p.vx * 0.1, y: p.y - p.vy * 0.1 }
+            const g = guardOf(a, from.x, from.y)
+            if (g === 'just') { deflectProj(p, a); justGuard(a, null); break }
+            if (g === 'block') { hurtAlly(a, p.dmg * GUARD.chip, p.by && p.by.kind); spark(p.x, p.y, 'gy6', 4, 40); p.life = 0; break }
             if (p.splash) explode(p.x, p.y, p.splash, p.dmg, 'enemy', p.by)
             else hurtAlly(a, p.dmg, p.by && (p.by.kind === 'boss' ? 'boss-fan' : p.by.kind))
             p.life = 0
@@ -1313,7 +1836,7 @@ export function createSim(opts = {}) {
   // --- 操作の切り替え ---
   function switchTo(u) {
     if (!u || !u.alive || u === S.leader) return false
-    if (S.leader) { S.leader.charge = null; S.leader.aiming = false }   // 引いていた弓・狙いは、切り替えたらやめる
+    if (S.leader) { S.leader.charge = null; S.leader.aiming = false; S.leader.guardOn = S.leader.guarding = false; S.leader.throwing = false; S.leader.prayPend = S.leader.praying = false; S.leader.casting = false; S.leader.boomCast = false; S.leader.voltCast = false; S.leader.gauge = null; S.leader.hamCast = false; S.leader.hamWind = 0 }   // 引いていた弓・構えていた盾・狙いは、切り替えたらやめる
     S.leader = u
     S.flowKey = -1
     ring(u.x, u.y, 'white', 16, 0.3)
@@ -1343,6 +1866,15 @@ export function createSim(opts = {}) {
     u.maxhp = u.hp = Math.round(JOBS[job].hp * lvMul(u.lvl))
     u.charge = null
     u.aiming = u.aimLine = false
+    u.guardOn = u.guarding = false
+    u.throwing = false
+    u.prayPend = u.praying = false
+    u.casting = false
+    u.boomCast = false
+    u.voltCast = false
+    u.hamCast = false
+    u.hamWind = 0
+    u.gauge = null
     u.cd = 0
     ring(u.x, u.y, 'white', 16, 0.3)
   }
@@ -1350,7 +1882,8 @@ export function createSim(opts = {}) {
     const L = S.leader
     S.camF.x = Math.max(0, Math.min(MW * TILE - VIEW_W, L.x - VIEW_W / 2))
     S.camF.y = Math.max(0, Math.min(MH * TILE - VIEW_H, L.y - VIEW_H / 2))
-    if (S.shakeT > 0) { S.camF.x += Math.round(rnd(-1, 1) * SWING.shake); S.camF.y += Math.round(rnd(-1, 1) * SWING.shake) }
+    if (S.shakeT > 0) { const a = S.shakeAmp ?? SWING.shake; S.camF.x += Math.round(rnd(-1, 1) * a); S.camF.y += Math.round(rnd(-1, 1) * a) }
+    else S.shakeAmp = 0
     S.cam.x = Math.floor(S.camF.x)
     S.cam.y = Math.floor(S.camF.y)
   }
@@ -1388,6 +1921,7 @@ export function createSim(opts = {}) {
     S.shakeT -= dt
     S.tpCool -= dt
     if (playground) playground.step(dt)
+    else updateRespawns(dt)
     if (S.bannerT > 0) { S.bannerT -= dt; if (S.bannerT <= 0) S.banner = null }
     updateCamera()
     refreshFlow()
@@ -1447,16 +1981,18 @@ export function createSim(opts = {}) {
   // 開始地点にいちばん近い 4 つの檻は、頑丈な職にする（最初の数人が倒れてすぐ終わらないように）
   {
     const order = world.spots.map((sp, i) => [Math.hypot(sp.tx - world.start.x / TILE, sp.ty - world.start.y / TILE), i]).sort((a, b) => a[0] - b[0]).slice(0, 4).map((p) => p[1])
-    ;['shield', 'bow', 'heal', 'spear'].forEach((j, k) => {
+    ;['shield', 'bow', 'heal', 'sword'].forEach((j, k) => {
       const from = jobs.findIndex((x, idx) => x === j && !order.includes(idx))
       const to = order[k]
       if (from >= 0) { jobs[from] = jobs[to]; jobs[to] = j }
     })
   }
+  const names = [...NAMES]                         // 捕虜の名前: 重ならないように、まぜてから順に配る
+  for (let i = names.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [names[i], names[j]] = [names[j], names[i]] }
   world.spots.forEach((sp, i) => {
     S.cages.push({
       id: i, tx: sp.tx, ty: sp.ty, x: sp.tx * TILE + 8, y: sp.ty * TILE + 8, hp: 10, maxhp: 10, flash: 0, opened: false,
-      job: jobs[i], name: pick(SYLLABLES) + pick(SYLLABLES), region: sp.region,
+      job: jobs[i], name: names[i] ?? `ALLY${i + 1}`, region: sp.region,
     })
   })
   S.total = S.cages.length
@@ -1469,8 +2005,33 @@ export function createSim(opts = {}) {
   refreshFlow()
 
   // --- 試し場（createSim({ test: true })）：開始地点のまわりに、いろいろな敵を並べる ---
-  // 強さは地域の倍率をかけない素の値。倒されたら、しばらくして同じ場所に出直す。操作キャラは倒れない
-  const playground = opts.test ? makePlayground() : null
+  // 強さは地域の倍率をかけない素の値。倒されたら、しばらくして同じ場所に出直す。誰も倒れない
+  // 味方 99 人（本番と同じ職の人数）を連れて始まり、画面のふちから敵が湧き続ける
+  const playground = FIELD ? makePlayground() : opts.test === 'boss' ? makeBossTest() : null
+  // ボス戦の試し（createSim({ test: 'boss', testLv })）: 全員助けた（99 人）レベル testLv の仲間で、闘技場の前から始める。
+  // 魔王城の兵はいない。ふつうに倒れる（全員倒れたらやり直し）
+  function makeBossTest() {
+    const LV = opts.testLv ?? 13
+    const L = S.leader
+    L.x = 167 * TILE + 8; L.y = 36 * TILE
+    for (const c of S.cages) { c.opened = true; tiles[c.ty * MW + c.tx] = T.PATH }
+    S.rescued = S.total
+    const fresh = (u) => { u.lvl = LV; u.xp = 0; u.maxhp = Math.round(JOBS[u.job].hp * lvMul(LV)); u.hp = u.maxhp }
+    fresh(L)
+    const pool = jobs.map((j, i) => [j, names[i]])
+    for (const [j, name] of pool) {
+      for (let tries = 0; tries < 40; tries++) {
+        const x = L.x + rnd(-90, 90), y = L.y + rnd(0, 70)
+        if (!boxBlocked(x, y, 5)) { const u = newAlly(j, x, y, LV); u.name = name ?? u.name; fresh(u); break }
+      }
+    }
+    for (const e of S.enemies) if (e !== S.boss) e.hp = 0
+    S.enemies = S.enemies.filter((e) => e === S.boss)
+    S.deadIdx = new Set()
+    updateCamera()
+    refreshFlow()
+    return { step() {} }
+  }
   function makePlayground() {
     const KINDS = ['slime', 'bat', 'goblin', 'boar', 'wolf', 'shaman', 'treant', 'scorpion', 'mummy', 'frostarcher', 'yeti', 'golem', 'knight', 'darkmage']
     const base = (k) => {
@@ -1479,6 +2040,13 @@ export function createSim(opts = {}) {
       return { ...D, hp: Math.round(D.hp / HP_MUL[D.tier]), dmg: Math.round(D.dmg / DMG_MUL[D.tier]), aggro: 60 }
     }
     const L = S.leader
+    // 味方: 本番と同じ職の人数で 99 人、開始地点のまわりに（試し場では誰も倒れない）
+    for (const j of JOB_LIST) for (let i = 0; i < JOB_COUNTS[j]; i++) {
+      for (let tries = 0; tries < 30; tries++) {
+        const x = L.x + rnd(-70, 70), y = L.y + rnd(-50, 50)
+        if (!boxBlocked(x, y, 5)) { newAlly(j, x, y); break }
+      }
+    }
     for (const e of S.enemies) if (e !== S.boss && Math.hypot(e.x - L.x, e.y - L.y) < 500) e.hp = 0
     S.enemies = S.enemies.filter((e) => e.hp > 0 || e === S.boss)
     const slots = []
@@ -1492,9 +2060,32 @@ export function createSim(opts = {}) {
         }
       }
     })
+    // 湧き続ける敵: 画面のふちから、全地域の敵（素の強さ）が攻めてくる。湧いた敵が WAVE_MAX を超えないように、WAVE_EVERY 秒ごとに 1 体
+    const ALL = Object.keys(ENEMIES).filter((k) => k !== 'imp')
+    const WAVE_MAX = 40, WAVE_EVERY = 0.5
+    const wave = []
+    let waveT = 2
+    const spawnWave = () => {
+      const k = pick(ALL), D = { ...base(k), aggro: 400 }
+      for (let tries = 0; tries < 12; tries++) {
+        const side = (Math.random() * 4) | 0, u = Math.random()
+        const x = S.cam.x + (side === 0 ? 10 : side === 1 ? VIEW_W - 10 : u * VIEW_W), y = S.cam.y + (side === 2 ? 14 : side === 3 ? VIEW_H - 10 : u * VIEW_H)
+        if (boxBlocked(x, y, 8) || !flow.reachable(Math.floor(x / TILE), Math.floor(y / TILE))) continue
+        const e = newEnemy(k, x, y, -9, D)
+        e.aggro = true
+        wave.push(e)
+        return
+      }
+    }
     return {
       step(dt) {
         L.hp = Math.max(L.hp, 1)
+        waveT -= dt
+        if (waveT <= 0) {
+          waveT = WAVE_EVERY
+          for (let i = wave.length - 1; i >= 0; i--) if (wave[i].hp <= 0) wave.splice(i, 1)
+          if (wave.length < WAVE_MAX) spawnWave()
+        }
         for (const sl of slots) {
           if (sl.e && sl.e.hp > 0) continue
           sl.wait -= dt
@@ -1511,11 +2102,12 @@ export function createSim(opts = {}) {
   const unb64 = (str) => { const bin = atob(str); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out }
   function serialize() {
     return {
-      v: 1, seed: world.seed, t: S.t, rescued: S.rescued, lost: S.lost, kills: S.kills,
+      v: 1, seed: world.seed, diff: opts.diff ?? 'normal', t: S.t, rescued: S.rescued, lost: S.lost, kills: S.kills,
       leader: S.allies.indexOf(S.leader),
       allies: S.allies.map((a) => ({ job: a.job, x: Math.round(a.x), y: Math.round(a.y), lvl: a.lvl, xp: +a.xp.toFixed(2), hp: Math.round(a.hp), name: a.name })),
       cages: S.cages.map((c) => ({ o: c.opened ? 1 : 0, job: c.job, name: c.name })),
       dead: [...S.deadIdx],
+      fallen: S.deaths.map((d) => ({ job: d.job, lvl: d.lvl, name: d.name })),   // 倒れた仲間（ポーズの一覧に出す）
       seen: b64(S.seen),
     }
   }
@@ -1526,18 +2118,21 @@ export function createSim(opts = {}) {
     S.kills = d.kills
     d.cages.forEach((c, i) => {
       const cg = S.cages[i]
-      cg.job = c.job; cg.name = c.name
+      cg.job = JOBS[c.job] ? c.job : 'sword'; cg.name = c.name
       if (c.o) { cg.opened = true; tiles[cg.ty * MW + cg.tx] = T.PATH }
     })
     S.allies = []
     for (const a of d.allies) {
-      const u = newAlly(a.job, a.x, a.y, a.lvl)
+      const u = newAlly(JOBS[a.job] ? a.job : 'sword', a.x, a.y, a.lvl)   // なくなった職（槍・弩・斧）は剣士に
       Object.assign(u, { xp: a.xp, hp: a.hp, name: a.name })
-      u.maxhp = Math.round(JOBS[a.job].hp * lvMul(a.lvl))
+      u.maxhp = Math.round(JOBS[u.job].hp * lvMul(a.lvl))
     }
     S.leader = S.allies[Math.max(0, d.leader)]
     const dead = new Set(d.dead)
     S.deadIdx = new Set(d.dead)
+    S.deaths = (d.fallen ?? []).filter((f) => JOBS[f.job])
+    S.respawns = []
+    for (const i of S.deadIdx) queueRespawn(i)
     for (const e of S.enemies) if (e.idx !== undefined && dead.has(e.idx)) e.hp = 0
     S.enemies = S.enemies.filter((e) => e.hp > 0 || e === S.boss)
     S.seen = unb64(d.seen)
@@ -1554,8 +2149,8 @@ export function createSim(opts = {}) {
   }
 
   Object.assign(S, {
-    serialize, restore, canSave, spawnEnemy: (k, x, y) => { const e = newEnemy(k, x, y, -9); e.active = true; return e },
-    step, switchTo, cycle, tapAt, newAlly, isManual, setJob, openCage, boxBlocked, teleportNearView, inArena, healPulse,
+    bossOpening, serialize, restore, canSave, spawnEnemy: (k, x, y) => { const e = newEnemy(k, x, y, -9); e.active = true; return e },
+    step, switchTo, cycle, tapAt, newAlly, isManual, setJob, boomLoopAt, diff: opts.diff ?? 'normal', openCage, boxBlocked, teleportNearView, inArena, healPulse,
     bossPhase: () => (S.boss ? bossPhase(S.boss) : 0), nearestCage,
   })
   return S

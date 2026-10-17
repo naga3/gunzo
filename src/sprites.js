@@ -54,14 +54,6 @@ export const JOB_ART = {
   sword: {
     parts: [[1, 14, 'w'], ...col(14, 'm', 2, 8), ...col(15, 'M', 2, 8), [9, 13, 'yyy'], [10, 14, 'g'], [11, 14, 'G'], [2, 5, 'rrrrrr']],
   },
-  spear: {
-    recolor: { c: 'u', C: 'U', D: 'V' },
-    extra: { u: 'bl3', U: 'bl2', V: 'bl4' },
-    parts: [
-      [0, 3, 'r'], [1, 3, 'r'], [0, 5, 'oMmmMo'], [1, 4, 'oMmmmmMo'], [2, 5, 'MMMM'],
-      [0, 14, 'w'], [1, 13, 'mwm'], ...col(14, 'g', 2, 14), [4, 13, 'r'],
-    ],
-  },
   shield: {
     recolor: { c: 'M', C: 'n', D: 'm' },
     extra: { x: 'bl3', X: 'bl1', z: 'ye1' },
@@ -80,20 +72,6 @@ export const JOB_ART = {
       [6, 2, 'w'], [7, 2, 'G'], [8, 2, 'G'], [9, 2, 'g'],
     ],
   },
-  xbow: {
-    recolor: { c: 'g', C: 'G', D: 'l' },
-    parts: [
-      [0, 5, 'oGGGGo'], [1, 4, 'oGlgggGo'], [2, 4, 'GGGGGGGG'],
-      [10, 8, 'GggggggG'], [9, 14, 'w'], [11, 14, 'w'], ...col(15, 'G', 8, 12), [10, 15, 'm'],
-    ],
-  },
-  axe: {
-    recolor: { c: 's', C: 'S', D: 's' },
-    parts: [
-      [2, 5, 'rrrrrr'], [10, 6, 'wMwM'],
-      [2, 13, 'mmM'], [3, 12, 'mmwM'], [4, 12, 'mmmM'], [5, 13, 'mmM'], ...col(14, 'g', 6, 13),
-    ],
-  },
   boom: {
     recolor: { c: 'u', C: 'U', D: 'V' },
     extra: { u: 'tl2', U: 'tl1', V: 'tl3', x: 'gr3', X: 'gr1', z: 'ye2' },
@@ -103,13 +81,28 @@ export const JOB_ART = {
       [6, 14, 'yY'], [7, 13, 'yy'], [8, 13, 'y'], [9, 13, 'yy'], [10, 14, 'yY'],
     ],
   },
-  mage: {
+  hammer: { // ハンマー使い（仮の絵。ちゃんとした絵は Pixel の art/allies/hammer.pic で描く）: 茶色の革の服、肩に大きな鉄のハンマー
+    recolor: { c: 'g', C: 'G', D: 'l' },
+    parts: [
+      [2, 5, 'rrrrrr'],
+      [0, 10, 'oooooo'], [1, 10, 'oMmmMo'], [2, 10, 'oMmMMo'], [3, 10, 'oMMMno'], [4, 10, 'oooooo'], ...col(13, 'G', 5, 12),
+    ],
+  },
+  thief: { // 盗賊（仮の絵。ちゃんとした絵は Pixel の art/allies/thief.pic で描く）: 濃い緑のフードと服、右手にナイフ
     recolor: { c: 'u', C: 'U', D: 'V' },
-    extra: { u: 'pu2', U: 'pu1', V: 'pu3' },
+    extra: { u: 'gr1', U: 'gr0', V: 'gr2' },
+    parts: [
+      [1, 4, 'ouuVuuuo'], [2, 4, 'ouUuusso'], [3, 4, 'ouus'], [4, 4, 'ou'],
+      [8, 14, 'w'], [9, 14, 'm'], [10, 13, 'gM'],
+    ],
+  },
+  ice: { // 氷術師（仮の絵。ちゃんとした絵は Pixel の art/allies/ice.pic で描く）: 水色のとんがり帽子とローブ、氷の杖
+    recolor: { c: 'u', C: 'U', D: 'V' },
+    extra: { u: 'bl4', U: 'bl3', V: 'bl5' },
     parts: [
       [0, 7, 'oVo'], [1, 6, 'oUVUo'], [2, 3, 'oUUUUUUUUo'],
       ...ROBE,
-      [1, 13, 'RrR'], [2, 13, 'rwr'], [3, 13, 'RrR'], ...col(14, 'g', 4, 13),
+      [1, 13, 'VwV'], [2, 13, 'wVw'], [3, 13, 'VwV'], ...col(14, 'g', 4, 13),
     ],
   },
   bomb: {

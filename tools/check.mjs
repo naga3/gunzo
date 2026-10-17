@@ -134,5 +134,35 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
   ok(fb.every((v) => v === 5), '画面の外の矩形は何も塗らない')
 }
 
+// 試し場（ブラウザでふだん開く形）: 自分で動かす職ぜんぶで始まり、振る・射る・構える・投げる・祈るを押して離しても止まらない。描ける
+{
+  let err = null
+  try {
+    for (const hero of JOB_LIST.filter((j) => JOBS[j].manual)) {
+      const S = createSim({ manual: true, test: true, hero })
+      for (const [hold, n] of [[true, 1], [true, 60], [false, 30], [true, 20], [false, 30]]) {
+        if (hold) S.input.pressed = true
+        S.input.hold = hold
+        for (let i = 0; i < n; i++) S.step(1 / 60)
+      }
+      const fb = new Uint8Array(W * H)
+      createRenderer(fb).draw(S, { screen: 'play', stick: null }, S.t)
+    }
+  } catch (e) { err = e }
+  ok(!err, `試し場で、自分で動かす職ぜんぶが動く${err ? `（${err.message}）` : ''}`)
+}
+
+// ボス戦の試し（?test で開く形）: 99 人＋操作キャラが LV13 で闘技場の前にいて、ボスと戦える。描ける
+{
+  let err = null, S = null
+  try {
+    S = createSim({ manual: true, test: 'boss', testLv: 13, hero: 'hammer' })
+    for (let i = 0; i < 60 * 8; i++) { S.input.my = -1; S.step(1 / 60) }
+    createRenderer(new Uint8Array(W * H)).draw(S, { screen: 'play', stick: null }, S.t)
+  } catch (e) { err = e }
+  ok(!err && S.allies.length >= 90 && S.allies.every((a) => a.lvl === 13) && S.boss.aggro && S.boss.hp < S.boss.maxhp,
+    `ボス戦の試しで、LV13 の 100 人がボスと戦える${err ? `（${err.message}）` : ''}`)
+}
+
 console.log(fails ? `\n${fails} 件失敗` : '\n全部通った')
 process.exit(fails ? 1 : 0)

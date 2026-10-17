@@ -2,6 +2,8 @@
 // 色の文字: b l B = その敵の主・光・影（data.js の col）、o 輪郭、w 白、e 目、r 赤、y Y 金、g G 革、m M n 金属、x X その敵だけの色、s S 肌
 import { BASE, compose } from './sprites.js'
 import { ENEMIES } from './data.js'
+import * as ART from './art.js' // Pixel で描いた敵（art/enemies/*.pic → src/art.js の ENEMY_PIC）。あれば、プログラムの絵の代わりに使う
+const PIC = ART.ENEMY_PIC ?? {}
 
 // --- 塗る道具 ---
 const mk = (w, h) => Array.from({ length: h }, () => Array(w).fill('.'))
@@ -271,6 +273,22 @@ for (const [k, art] of Object.entries(ENEMY_ART)) {
   }
 }
 
+// Pixel で描いた敵: 大きさ・絵（a 立ち＝idle、b 動き＝move1）・動き（anim move のコマと長さ）を、プログラムの絵と入れ替える
+export const ENEMY_ANIM = {}
+for (const [k, pic] of Object.entries(PIC)) {
+  const idle = pic.pics.idle ?? Object.values(pic.pics)[0]
+  if (!idle) continue
+  const w = idle[0].length, h = idle.length
+  const toArr = (rows) => { const arr = new Uint8Array(w * h); rows.forEach((row, y) => [...row].forEach((ch, x) => { arr[y * w + x] = ch.charCodeAt(0) })); return arr }
+  SIZE[k] = { w, h }
+  ENEMY_DATA[k] = { a: toArr(idle), b: toArr(pic.pics.move1 ?? idle) }
+  const an = pic.anims?.move
+  if (an) {
+    const fr = an.frames.map((n, i) => [pic.pics[n], an.ms[i]]).filter(([rows]) => rows && rows.length === h && rows[0].length === w)
+    if (fr.length) ENEMY_ANIM[k] = { frames: fr.map(([rows]) => toArr(rows)), ms: fr.map(([, ms]) => ms) }
+  }
+}
+
 // 敵ごとの、文字 → パレット番号の表
 const tableCache = new Map()
 const CLOTH_KEYS = { c: 0, C: 1, D: 2 }
@@ -287,6 +305,11 @@ export function enemyTable(kind, P, options = {}) {
   if (t) return t
   t = new Uint8Array(256).fill(255)
   const set = (ch, name) => { t[ch.charCodeAt(0)] = P[name] }
+  if (PIC[kind]) {                                 // Pixel で描いた敵は、そのファイルの色がすべて
+    for (const [ch, name] of Object.entries(PIC[kind].colors)) set(ch, name)
+    tableCache.set(key, t)
+    return t
+  }
   for (const [ch, name] of Object.entries(FIXED)) set(ch, name)
   const D = ENEMIES[kind]
   const H = HUMANS[kind]

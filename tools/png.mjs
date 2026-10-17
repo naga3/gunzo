@@ -1,7 +1,7 @@
 // インデックスバッファを PNG にする（確認用）
 import { writeFileSync } from 'node:fs'
 import { deflateSync } from 'node:zlib'
-import { PAL_HEX } from '../src/palette.js'
+import { ALL_HEX } from '../src/shade.js'
 
 const crcTable = new Uint32Array(256).map((_, n) => {
   let c = n
@@ -23,7 +23,7 @@ const chunk = (type, data) => {
 }
 
 export function writePng(path, fb, w, h, scale = 1) {
-  const rgb = PAL_HEX.map((x) => [parseInt(x.slice(0, 2), 16), parseInt(x.slice(2, 4), 16), parseInt(x.slice(4, 6), 16)])
+  const rgb = ALL_HEX.map((x) => [parseInt(x.slice(0, 2), 16), parseInt(x.slice(2, 4), 16), parseInt(x.slice(4, 6), 16)])
   const W = w * scale, H = h * scale
   const raw = Buffer.alloc((W * 3 + 1) * H)
   for (let y = 0; y < H; y++) {

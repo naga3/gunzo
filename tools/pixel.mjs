@@ -5,11 +5,15 @@
 //   動き（アニメ）は、各ファイルの anim の行（anim walk_down down_walk1:120 down:120 …。Pixel のプレビューと、ゲームの両方が読む）
 // このスクリプト:
 //   node tools/pixel.mjs build          art/gunzo.gpl → src/palette.js、art/allies/*.pic → src/art.js（Pixel が保存のたびに動かす。変わったときだけ書く）
-//   node tools/pixel.mjs new <職>        art/allies/<職>.pic を作る（右は今の絵、左はその反転を下書きに。上下は空）
+//   node tools/pixel.mjs new <職>        art/allies/<職>.pic を作る（今の絵を下書きに）
+//   node tools/pixel.mjs export          今の敵（src/enemysprites.js）と背景のタイル（src/render.js）を、art/enemies/・art/tiles/ に下書きとして書き出す（まだ無いファイルだけ）
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { SPRITES, roleNames, W, H } from '../src/sprites.js'
+import { ENEMY_DATA, ENEMY_SIZE, enemyTable } from '../src/enemysprites.js'
+import { createRenderer } from '../src/render.js'
+import { B } from '../src/world.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ART = join(ROOT, 'art')
@@ -96,6 +100,29 @@ export const P = Object.fromEntries(COLORS.map((c, i) => [c[0], i]))
   if (writeIfChanged(join(ROOT, 'src/palette.js'), text)) console.log(`src/palette.js: ${PAL.length} 色`)
 }
 
+// 敵・背景（art/enemies/*.pic・art/tiles/*.pic）: ファイルごとに { colors: { 文字: 色の名前 }, pics: { 絵の名前: 行 }, anims }（候補 ~ と、空の絵は除く）
+function picSet(dir) {
+  const out = {}
+  if (!existsSync(dir)) return out
+  for (const f of readdirSync(dir).filter((f) => f.endsWith('.pic')).sort()) {
+    const file = join(dir, f), doc = readPic(file)
+    if (doc.palette !== 'gunzo' || doc.rgb) throw new Error(`${file} が gunzo の色の表を使っていない（palette gunzo の行が要る）`)
+    const one = { colors: {}, pics: {}, anims: doc.anims }
+    for (const [name, rows] of Object.entries(doc.pics)) {
+      if (name.includes('~') || rows.every((r) => /^\.*$/.test(r))) continue
+      if (rows.some((r) => r.length !== rows[0].length)) throw new Error(`${file} の ${name} の行の長さがそろっていない`)
+      for (const ch of new Set(rows.join(''))) {
+        if (ch === '.') continue
+        if (!(ch in doc.colors) || !NAME_OF[doc.colors[ch]]) throw new Error(`${file} の ${name} に、色の決まっていない文字 ${ch}`)
+        one.colors[ch] = NAME_OF[doc.colors[ch]]
+      }
+      one.pics[name] = rows
+    }
+    out[f.slice(0, -4)] = one
+  }
+  return out
+}
+
 function build() {
   buildPalette()
   const all = {}
@@ -112,10 +139,16 @@ function build() {
     for (const [d, rows] of Object.entries(a)) if (d !== 'colors' && d !== 'anims') parts.push(`    ${d}: [\n${rows.map((r) => `      '${r}',`).join('\n')}\n    ],`)
     return `  ${job}: {\n${parts.join('\n')}\n  },`
   }).join('\n')
+  const enemies = picSet(join(ART, 'enemies')), tiles = picSet(join(ART, 'tiles'))
+  const set = (o) => Object.entries(o).map(([k, v]) => `  ${k}: ${JSON.stringify(v)},`).join('\n')
   const text = `// Pixel で描いた、向きごとの一枚絵と動きのコマ（tools/pixel.mjs が art/allies/*.pic から作る。手で直さない）\n` +
-    `// anims は動き（ファイルの anim の行）。ms は 1 コマの長さ（ミリ秒）\nexport const DIR_ART = {${body ? `\n${body}\n` : ''}}\n`
-  if (writeIfChanged(join(ROOT, 'src/art.js'), text))
+    `// anims は動き（ファイルの anim の行）。ms は 1 コマの長さ（ミリ秒）\nexport const DIR_ART = {${body ? `\n${body}\n` : ''}}\n` +
+    `// 敵（art/enemies/*.pic）と背景のタイル（art/tiles/*.pic）: { colors: { 文字: 色の名前 }, pics: { 絵の名前: 行 }, anims }\n` +
+    `export const ENEMY_PIC = {${Object.keys(enemies).length ? `\n${set(enemies)}\n` : ''}}\nexport const TILE_PIC = {${Object.keys(tiles).length ? `\n${set(tiles)}\n` : ''}}\n`
+  if (writeIfChanged(join(ROOT, 'src/art.js'), text)) {
+    if (Object.keys(enemies).length || Object.keys(tiles).length) console.log(`src/art.js: 敵 ${Object.keys(enemies).length}、背景 ${Object.keys(tiles).length}`)
     for (const [job, a] of Object.entries(all)) console.log(`src/art.js: ${job}（${Object.keys(a).filter((d) => d !== 'colors' && d !== 'anims').join('・')}${Object.keys(a.anims).length ? `、動き ${Object.keys(a.anims).join('・')}` : '' || '絵なし'}${Object.keys(a.colors).length ? `、色 ${Object.keys(a.colors).length}` : ''}）`)
+  }
 }
 
 function create(job) {
@@ -140,11 +173,63 @@ function create(job) {
   console.log(`${file} を作った（down と歩きのコマに、今の絵を下書きとして入れた）`)
 }
 
+// ---- 下書きの書き出し（敵・背景）。まだ無いファイルだけ作る（描いたものを上書きしない）----
+const CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!$&*+-/:;<=>@^_|'
+function writeDraft(dir, name, title, pics, colorOf, anim = null) {
+  const file = join(dir, `${name}.pic`)
+  if (existsSync(file)) return false
+  const used = [...new Set(pics.flatMap((p) => [...p.rows.join('')]))].filter((c) => c !== '.')
+  const lines = [`# ${title}（今のプログラムの絵から書き出した下書き）。決まりは ${relDir(dir)}/GROUP.md`, `title ${name}`, 'palette gunzo']
+  if (anim) lines.push(anim)
+  for (const ch of used) lines.push(`color ${ch} ${colorOf(ch)}`)
+  lines.push('')
+  for (const p of pics) lines.push(`pic ${p.name} ${p.rows[0].length} ${p.rows.length}${p.label ? ` "${p.label}"` : ''}`, ...p.rows.map((r) => '  ' + r), '')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(file, lines.join('\n'))
+  return true
+}
+const relDir = (dir) => dir.slice(ROOT.length + 1)
+function exportEnemies() {
+  const dir = join(ART, 'enemies')
+  let n = 0
+  for (const [kind, fr] of Object.entries(ENEMY_DATA)) {
+    const { w, h } = ENEMY_SIZE[kind], tbl = enemyTable(kind, P)
+    const rows = (arr) => Array.from({ length: h }, (_, y) => Array.from({ length: w }, (_, x) => { const ch = String.fromCharCode(arr[y * w + x]); return tbl[arr[y * w + x]] === 255 ? '.' : ch }).join(''))
+    const pics = [{ name: 'idle', rows: rows(fr.a), label: '立ち' }, { name: 'move1', rows: rows(fr.b), label: '動き' }]
+    if (writeDraft(dir, kind, `敵「${kind}」`, pics, (ch) => tbl[ch.charCodeAt(0)], 'anim move idle:150 move1:150')) n++
+  }
+  console.log(`art/enemies: ${n} ファイル作った（すでにあるものは触らない）`)
+}
+function exportTiles() {
+  const dir = join(ART, 'tiles')
+  const { SETS, CASTLE_SET } = createRenderer(new Uint8Array(320 * 240)).tileSets()
+  const asPics = (entries) => {                    // タイル（パレット番号の並び）を、色ごとに文字を割り当てた絵に
+    const map = new Map()
+    const ch = (i) => { if (!map.has(i)) map.set(i, CHARS[map.size]); return map.get(i) }
+    const pics = entries.map(([name, t]) => ({ name, rows: Array.from({ length: 16 }, (_, y) => Array.from({ length: 16 }, (_, x) => ch(t[y * 16 + x])).join('')) }))
+    const back = new Map([...map].map(([i, c]) => [c, i]))
+    return [pics, (c) => back.get(c)]
+  }
+  const names = { [B.GRASS]: ['grass', '草原'], [B.FOREST]: ['forest', '森'], [B.DESERT]: ['desert', '砂漠'], [B.SNOW]: ['snow', '雪原'], [B.VOLCANO]: ['volcano', '火山'] }
+  let n = 0
+  for (const [bi, set] of Object.entries(SETS)) {
+    const [name, label] = names[bi]
+    const entries = [...set.ground.map((t, i) => [`ground${i + 1}`, t]), ...set.deco.map((t, i) => [`deco${i + 1}`, t]), ...set.path.map((t, i) => [`path${i + 1}`, t]),
+      ...set.tree.map((t, i) => [`tree${i + 1}`, t]), ...set.rock.map((t, i) => [`rock${i + 1}`, t]), ...set.water.map((t, i) => [`water${i + 1}`, t])]
+    const [pics, colorOf] = asPics(entries)
+    if (writeDraft(dir, name, `背景のタイル「${label}」`, pics, colorOf, 'anim water water1:670 water2:670')) n++
+  }
+  const [pics, colorOf] = asPics([...CASTLE_SET.floor.map((t, i) => [`floor${i + 1}`, t]), ['wall', CASTLE_SET.wall], ['deco1', CASTLE_SET.deco]])
+  if (writeDraft(dir, 'castle', '背景のタイル「魔王城」', pics, colorOf)) n++
+  console.log(`art/tiles: ${n} ファイル作った（すでにあるものは触らない）`)
+}
+
 const [cmd, job] = process.argv.slice(2)
 try {
   if (cmd === 'build') build()
   else if (cmd === 'new' && job) { create(job); build() }
-  else { console.error('使い方: node tools/pixel.mjs build / new <職>'); process.exit(2) }
+  else if (cmd === 'export') { exportEnemies(); exportTiles() }
+  else { console.error('使い方: node tools/pixel.mjs build / new <職> / export'); process.exit(2) }
 } catch (e) {
   console.error(e.message)
   process.exit(1)

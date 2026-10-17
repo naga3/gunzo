@@ -1,28 +1,52 @@
 // 描画。640x480 のインデックスバッファ（fb）にパレット番号で描く。DOM は使わない
 import { P } from './palette.js'
+import { dark } from './shade.js'
 import { TILE, MW, MH, T, B } from './world.js'
 import { JOBS, VIEW_W, VIEW_H, MAX_LV, xpNeed } from './sim.js'
-import { SHOOT } from './data.js'
+import { SHOOT, GUARD, THROW, PRAY, FREEZE } from './data.js'
 import { SPRITE_DATA, DIR_DATA, ANIMS, colorTable, W as SW, H as SH } from './sprites.js'
-import { ENEMY_DATA, ENEMY_SIZE, enemyTable } from './enemysprites.js'
+import { ENEMY_DATA, ENEMY_SIZE, ENEMY_ANIM, enemyTable } from './enemysprites.js'
+import * as ART from './art.js'
 
 export const W = VIEW_W
 export const H = VIEW_H
 
 // 画面のボタン（fb 座標）
-export const PREV_BTN = { x: 4, y: H - 26, w: 22, h: 22 }
-export const NEXT_BTN = { x: 30, y: H - 26, w: 22, h: 22 }
+export const PAUSE_BTN = { x: 4, y: H - 26, w: 22, h: 22 }
+export const PREV_BTN = { x: 30, y: H - 26, w: 22, h: 22 }
+export const NEXT_BTN = { x: 56, y: H - 26, w: 22, h: 22 }
 // 振るボタン（自分で振る職を操作しているときだけ出る）。r は見た目の半径
 export const SWING_BTN = { x: W - 30, y: H - 32, r: 22 }
-export const PAUSE_BTN = { x: W - 94, y: 4, w: 20, h: 20 }
 export const MINI = { x: W - 70, y: 4, w: 66, h: 50 }
 export const NEW_BTN = { x: W / 2 - 60, y: 148, w: 120, h: 22 }
 export const CONT_BTN = { x: W / 2 - 60, y: 176, w: 120, h: 22 }
+// ポーズ画面: 下に並ぶボタンと、仲間の一覧のページ送り
 export const MENU_BTNS = [
-  { id: 'resume', label: 'RESUME', x: W / 2 - 60, y: 84, w: 120, h: 22 },
-  { id: 'sound', label: 'SOUND', x: W / 2 - 60, y: 112, w: 120, h: 22 },
-  { id: 'title', label: 'TITLE', x: W / 2 - 60, y: 140, w: 120, h: 22 },
+  { id: 'resume', label: 'RESUME', x: 100, y: H - 24, w: 70, h: 20 },
+  { id: 'sound', label: 'SOUND', x: 174, y: H - 24, w: 70, h: 20 },
+  { id: 'title', label: 'TITLE', x: 248, y: H - 24, w: 68, h: 20 },
 ]
+export const PAGE_PREV = { x: 4, y: H - 24, w: 20, h: 20 }
+export const PAGE_NEXT = { x: 70, y: H - 24, w: 20, h: 20 }
+export const LIST_ROWS = 10, LIST_COLS = 3, LIST_Y = 20, ROW_H = 19, COL_W = (W - 8) / LIST_COLS
+const LIST_PER = LIST_ROWS * LIST_COLS
+// 一覧に出す人: 生きている仲間（助けた順）と、その後ろに倒れた仲間（倒れた順）
+const listPeople = (S) => [...S.allies.filter((a) => a.alive), ...S.deaths.map((d) => ({ ...d, fallen: true }))]
+export const listPages = (S) => Math.max(1, Math.ceil(listPeople(S).length / LIST_PER))
+const listPage = (S, ui) => Math.min(ui.page ?? 0, listPages(S) - 1)
+// 一覧の i 番目（ページの中）の枠
+const listCell = (i) => ({ x: 4 + Math.floor(i / LIST_ROWS) * COL_W, y: LIST_Y + (i % LIST_ROWS) * ROW_H, w: COL_W - 2, h: ROW_H - 1 })
+// fb の点 p にいる仲間（ポーズの一覧を押したとき）
+export function listHit(S, ui, p) {
+  const page = listPage(S, ui), people = listPeople(S)
+  for (let i = 0; i < LIST_PER; i++) {
+    const a = people[page * LIST_PER + i]
+    if (!a) return null
+    const b = listCell(i)
+    if (p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h) return a.fallen ? null : a
+  }
+  return null
+}
 
 const c = (name) => P[name]
 
@@ -227,6 +251,40 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     }),
     deco: makeTile((set) => { fillT(set, 0, 0, 16, 16, c('rd1')); fillT(set, 0, 0, 16, 2, c('ye1')); fillT(set, 0, 14, 16, 2, c('ye1')); fillT(set, 6, 5, 4, 6, c('rd2')) }),
   }
+  CASTLE_SET.decos = [CASTLE_SET.deco]
+  // Pixel で描いた背景（art/tiles/*.pic → src/art.js の TILE_PIC）があれば、プログラムの絵と入れ替える。
+  // 同じ種類（ground1, ground2…）は何枚でもよい（場所ごとに混ぜて使う）。透明な点は、その地域の ground1 の色にする
+  {
+    const TILE_PIC = ART.TILE_PIC ?? {}
+    const toTile = (pic, rows, under) => {
+      const t = new Uint8Array(TILE * TILE)
+      for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const ch = rows[y]?.[x]
+        t[y * TILE + x] = ch && ch !== '.' && pic.colors[ch] ? P[pic.colors[ch]] : under ? under[y * TILE + x] : 0
+      }
+      return t
+    }
+    const list = (pic, kind, under) => Object.keys(pic.pics).filter((n) => new RegExp(`^${kind}\\d+$`).test(n))
+      .sort((a, b) => parseInt(a.slice(kind.length), 10) - parseInt(b.slice(kind.length), 10)).map((n) => toTile(pic, pic.pics[n], under))
+    const NAMES = { grass: B.GRASS, forest: B.FOREST, desert: B.DESERT, snow: B.SNOW, volcano: B.VOLCANO }
+    for (const [name, bi] of Object.entries(NAMES)) {
+      const pic = TILE_PIC[name]
+      if (!pic) continue
+      const st = SETS[bi]
+      const ground = list(pic, 'ground', null)
+      if (ground.length) st.ground = ground
+      for (const kind of ['deco', 'path', 'tree', 'rock', 'water']) { const l = list(pic, kind, st.ground[0]); if (l.length) st[kind] = l }
+      st.waterMs = pic.anims?.water?.ms?.[0] ?? 670
+    }
+    const cp = TILE_PIC.castle
+    if (cp) {
+      const floor = list(cp, 'floor', null)
+      if (floor.length) CASTLE_SET.floor = floor
+      if (cp.pics.wall) CASTLE_SET.wall = toTile(cp, cp.pics.wall, CASTLE_SET.floor[0])
+      const decos = list(cp, 'deco', CASTLE_SET.floor[0])
+      if (decos.length) CASTLE_SET.decos = decos
+    }
+  }
   function blit(tile, x, y) {
     for (let j = 0; j < TILE; j++) {
       const yy = y + j
@@ -250,21 +308,21 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
         const sx = tx * TILE - cx, sy = ty * TILE - cy
         if (bi === B.CASTLE) {
           if (k === T.WALL) blit(CASTLE_SET.wall, sx, sy)
-          else if (k === T.DECO) blit(CASTLE_SET.deco, sx, sy)
-          else blit(CASTLE_SET.floor[(tx + ty) & 1], sx, sy)
+          else if (k === T.DECO) blit(CASTLE_SET.decos[h % CASTLE_SET.decos.length], sx, sy)
+          else blit(CASTLE_SET.floor[(tx + ty) % CASTLE_SET.floor.length], sx, sy)
           continue
         }
         const st = SETS[bi] ?? SETS[B.GRASS]
         let tile
         switch (k) {
-          case T.TREE: tile = st.tree[h & 1]; break
-          case T.WATER: tile = st.water[(Math.floor(t * 1.5) + tx + ty) & 1]; break
-          case T.ROCK: tile = st.rock[h & 1]; break
-          case T.PATH: tile = st.path[h % 3]; break
-          case T.DECO: tile = st.deco[h % 3]; break
+          case T.TREE: tile = st.tree[h % st.tree.length]; break
+          case T.WATER: tile = st.water[(Math.floor((t * 1000) / (st.waterMs ?? 670)) + tx + ty) % st.water.length]; break
+          case T.ROCK: tile = st.rock[h % st.rock.length]; break
+          case T.PATH: tile = st.path[h % st.path.length]; break
+          case T.DECO: tile = st.deco[h % st.deco.length]; break
           case T.WALL: tile = CASTLE_SET.wall; break
-          case T.FLOOR: tile = CASTLE_SET.floor[(tx + ty) & 1]; break
-          default: tile = st.ground[h & 3]
+          case T.FLOOR: tile = CASTLE_SET.floor[(tx + ty) % CASTLE_SET.floor.length]; break
+          default: tile = st.ground[h % st.ground.length]
         }
         blit(tile, sx, sy)
       }
@@ -366,9 +424,24 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     rect(fx - (sw >> 1), fy - 2, sw, 2, c('gy1'))
     rect(fx - (sw >> 1) + 1, fy - 3, sw - 2, 1, c('gy1'))
     const tbl = enemyTable(kind, P, isBoss ? { rage: e.hp < e.maxhp * 0.33, stun: e.pstate === 'stun' } : {})
-    const arr = data[frame]
+    // Pixel で描いた動き（anim move）があれば、動いている間はそのコマと長さで回す
+    const A = ENEMY_ANIM[kind], animOn = D.shape === 'blob' || flyer || isBoss || e.state === 'chase' || e.state === 'act'
+    let arr = data[frame]
+    if (A) {
+      arr = data.a
+      if (animOn) {
+        const total = A.ms.reduce((s2, v) => s2 + v, 0)
+        let tt = (e.anim * 1000) % total, k = 0
+        while (tt >= A.ms[k]) { tt -= A.ms[k]; k++ }
+        arr = A.frames[k]
+      }
+    }
     const white = c('white')
-    const flash = e.flash > 0
+    // 弾を撃つ・突進する予兆: 白く点滅し、直前の一瞬は白く光りっぱなし（射線・突進の線の代わり）
+    const aimLeft = !isBoss && e.state === 'wind' && ['shoot', 'fireball', 'fan', 'charge'].includes(D.atk) ? e.windT
+      : isBoss && e.pstate === 'wind' && (e.atkKind === 'fan' || e.atkKind === 'charge') ? e.pT : null
+    const flash = e.flash > 0 || (aimLeft != null && (aimLeft < 0.12 || (Math.floor(t * 14) & 1)))
+    const frozen = e.frozen > 0, iceA = c('bl5'), iceB = c('bl4'), iceW = c('white')
     for (let y = 0; y < size.h; y++) {
       const yy = oy + y
       if (yy < 0 || yy >= H) continue
@@ -379,6 +452,7 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
         if (col === 255) continue
         // 命中の点滅：小さい敵は真っ白、ボスと大きな敵は市松（大勢に撃たれ続けても、絵が見えるように）
         if (flash && ch !== 111 && (size.w < 24 || ((x + y) & 1))) col = white
+        else if (frozen && ch !== 111) col = (x + y) & 1 ? iceA : (y < 3 ? iceW : iceB)   // 凍っている: 氷の色の市松
         const xx = ox + x
         if (xx >= 0 && xx < W) fb[yy * W + xx] = col
       }
@@ -461,16 +535,6 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
         dot(len - 1, 0, shaft)
         break
       }
-      case 'bolt':
-        for (let i = 0; i < 9; i++) { const xx = Math.round(x - Math.cos(a) * i), yy = Math.round(y - Math.sin(a) * i); px(xx, yy, i === 0 ? c('white') : c('bl5')); if (i < 6) px(xx, yy - 1, c('bl3')) }
-        break
-      case 'axe': {
-        const r = Math.floor(p.spin) & 3
-        const pts = [[0, -3], [3, 0], [0, 3], [-3, 0]]
-        for (let i = 0; i < 4; i++) { const [ox, oy] = pts[(i + r) & 3]; px(x + ox, y + oy, i === 0 ? c('gy6') : c('br3')); px(x + (ox >> 1), y + (oy >> 1), c('br3')) }
-        px(x, y, c('gy5'))
-        break
-      }
       case 'boom': {
         const r = Math.floor(p.spin) & 3
         const pts = [[3, -1], [1, 3], [-3, 1], [-1, -3]]
@@ -481,6 +545,23 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       case 'magic':
         disc(x, y, 3, c('pu2')); disc(x, y, 2, c('pu3')); px(x, y, c('white')); px(x + 3, y - 3, c('pu4')); px(x - 3, y + 2, c('pu4'))
         break
+      case 'icicle': {                             // ツララ: 先の尖った氷のかけら
+        const ca = Math.cos(a), sa = Math.sin(a)
+        for (let i = 0; i < 7; i++) {
+          const xx = Math.round(x - ca * i), yy = Math.round(y - sa * i)
+          px(xx, yy, i < 2 ? c('white') : i < 5 ? c('bl5') : c('bl4'))
+          if (i >= 2 && i <= 4) { px(Math.round(xx - sa), Math.round(yy + ca), c('bl4')); px(Math.round(xx + sa), Math.round(yy - ca), c('bl5')) }
+        }
+        break
+      }
+      case 'frostbolt':                            // 冷気の弾: 白く光る大きな玉と、まわりの氷の粒
+        disc(x, y, 4, c('bl4')); disc(x, y, 3, c('bl5')); disc(x, y, 1, c('white'))
+        for (let i = 0; i < 4; i++) { const r = p.spin + (i * Math.PI) / 2; px(Math.round(x + Math.cos(r) * 6), Math.round(y + Math.sin(r) * 6), c('white')) }
+        break
+      case 'healbolt':                             // 癒やしの光: 緑に光る小さな玉
+        disc(x, y, 2, c('gr5')); px(x, y, c('white'))
+        px(x + (Math.floor(p.spin) & 1 ? 3 : -3), y, c('gr6')); px(x, y + (Math.floor(p.spin) & 1 ? -3 : 3), c('gr6'))
+        break
       case 'fireball':
         if (p.deflected) { disc(x, y, p.r >= 6 ? 4 : 3, c('bl3')); disc(x, y, 2, c('bl5')); px(x, y, c('white')); break } // 弾き返した弾は青く
         disc(x, y, p.r >= 6 ? 4 : 3, c('or1')); disc(x, y, 2, c('ye2')); px(x, y, c('white'))
@@ -490,50 +571,40 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
   function drawBlast(bl, cx, cy, t) {
     const x = Math.round(bl.x - cx), y = Math.round(bl.y - cy)
     if (bl.team === 'ally') {
-      // 爆弾：投げられているあいだは山なりに飛び、着いたら導火線が光る
+      // 爆弾：投げられているあいだは山なりに飛び、着いたら導火線が光る（爆発の範囲の線は描かない。敵の予兆と紛らわしいので）
       const fl = bl.total - bl.t
       if (fl < bl.flight) {
         const k = fl / bl.flight
         const bx = bl.sx + (bl.x - bl.sx) * k - cx, by = bl.sy + (bl.y - bl.sy) * k - cy - Math.sin(k * Math.PI) * 26
         disc(Math.round(bx), Math.round(by), 2, c('ink')); px(Math.round(bx), Math.round(by) - 3, c('or2'))
-        px(Math.round(bl.x - cx), Math.round(bl.y - cy), c('rd3')) // 落ちる場所の印
+        px(Math.round(bl.x - cx), Math.round(bl.y - cy), c('ye2')) // 落ちる場所の印（味方の爆弾は黄色。赤は敵の予兆と紛らわしい）
       } else {
         disc(x, y, 2, c('ink'))
         px(x + 1, y - 3, Math.floor(t * 20) & 1 ? c('ye3') : c('or2'))
-        ringPx(x, y, bl.r, c('rd3'), 1, true)
       }
     } else {
+      // ボスの雨: 足元の予兆と同じく、地面を暗くした丸。落ちるまでに、小さい丸から広がっていく
       const k = 1 - bl.t / bl.total
-      ditherDisc(x, y, Math.round(bl.r * k), c('rd2'), 0)
-      ringPx(x, y, bl.r, Math.floor(t * 12) & 1 ? c('rd3') : c('rd4'), 1)
+      darkDisc(x, y, Math.max(3, bl.r * (0.35 + 0.65 * k)))
     }
   }
-  function drawWedge(tl, cx, cy, t) {
-    const x = Math.round(tl.x - cx), y = Math.round(tl.y - cy) + 4
-    const blink = Math.floor(t * 14) & 1
-    const a0 = tl.ang - tl.spread / 2, a1 = tl.ang + tl.spread / 2
-    const ex = (a) => [Math.round(x + Math.cos(a) * tl.len), Math.round(y + Math.sin(a) * tl.len)]
-    // 中を市松で塗る（半透明の代わり）
-    for (let i = 0; i < 40; i++) {
-      const a = a0 + ((a1 - a0) * i) / 39
-      for (let r = 10; r < tl.len; r += 4) if (((r >> 2) + i) & 1) px(Math.round(x + Math.cos(a) * r), Math.round(y + Math.sin(a) * r), c('rd1'))
-    }
-    const [x0, y0] = ex(a0), [x1, y1] = ex(a1)
-    lineThick(x, y, x0, y0, 1, blink ? c('rd3') : c('rd4'))
-    lineThick(x, y, x1, y1, 1, blink ? c('rd3') : c('rd4'))
-    for (let i = 0; i <= 24; i++) { const a = a0 + ((a1 - a0) * i) / 24; px(Math.round(x + Math.cos(a) * tl.len), Math.round(y + Math.sin(a) * tl.len), blink ? c('rd3') : c('rd4')) }
-  }
+  // 予兆: 足元の円（殴る・叩きつける）だけ描く。弾を撃つ線・扇形と突進の線は描かない（撃つ敵・突進する敵が点滅する。drawEnemy）
   function drawTele(tl, cx, cy, t) {
-    if (tl.k === 'wedge') { drawWedge(tl, cx, cy, t); return }
+    if (tl.k !== 'circle') return
     const x = Math.round(tl.x - cx), y = Math.round(tl.y - cy) + 4
-    const blink = Math.floor(t * 14) & 1
-    if (tl.k === 'circle') {
-      ditherDisc(x, y, Math.round(tl.r), c('rd1'), 0)
-      ringPx(x, y, tl.r, blink ? c('rd3') : c('rd4'), 1)
-    } else if (tl.k === 'line') {
-      const x2 = Math.round(tl.x2 - cx), y2 = Math.round(tl.y2 - cy) + 4
-      lineThick(x, y, x2, y2, Math.max(1, tl.w), c('rd1'), 0)
-      lineThick(x, y, x2, y2, 1, blink ? c('rd3') : c('rd4'), 3)
+    // 色は付けず、地面を少し暗くした丸（重なっても暗くなるのは一度だけ。人や敵はこの上に描く）
+    darkDisc(x, y, tl.r)
+  }
+  function darkDisc(cx, cy, r) {
+    const r2 = r * r
+    for (let dy = -Math.ceil(r); dy <= r; dy++) {
+      const yy = cy + dy
+      if (yy < 0 || yy >= H) continue
+      for (let dx = -Math.ceil(r); dx <= r; dx++) {
+        const xx = cx + dx
+        if (xx < 0 || xx >= W || dx * dx + dy * dy > r2) continue
+        fb[yy * W + xx] = dark(fb[yy * W + xx])
+      }
     }
   }
   // 剣の振り：太い一筆の弧（どの向きにも振れるので、プログラムで描く）。先頭（振り終わりの側）が太く、尾（振り始めの側）へ細く尖る。
@@ -566,6 +637,16 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       }
     }
   }
+  // 盾の「[」: 中心 (cx, cy) から向き dir へ dist 離れた所に、向きと直角な長さ 2×half の線。両端は体の方へ 3 点折り返す。w は太さ
+  function drawBracket(cx, cy, [dx, dy], dist, half, w, col, edge) {
+    const nx = -dy, ny = dx
+    const at = (along, side) => [Math.round(cx + dx * along + nx * side), Math.round(cy + dy * along + ny * side)]
+    for (let t = 0; t < w; t++) {
+      const d = dist - t
+      for (let sd = -half; sd <= half; sd += 0.5) { const [xx, yy] = at(d, sd); px(xx, yy, Math.abs(sd) > half - 1 ? edge : col) }
+      for (const sgn of [-1, 1]) for (let b = 0; b <= 3; b += 0.5) { const [xx, yy] = at(d - b, sgn * (half - t * 0)); px(xx, yy, edge) }
+    }
+  }
   function drawFx(S) {
     const cx = S.cam.x, cy = S.cam.y
     for (const f of S.fx) {
@@ -584,6 +665,31 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
         drawEnemy(ghost, x, y + 6, S.t)
       }
       else if (f.k === 'slash') drawSlash(f, x, y, k)
+      else if (f.k === 'impact') {                   // ハンマーを叩きつけた衝撃: 白い輪が一瞬広がり、放射状の短い線、地面のひび
+        const r = 3 + 9 * Math.min(1, k * 2.5)
+        if (k < 0.6) ringPx(x, y, r, k < 0.3 ? c('white') : c('gy5'), 0.6)
+        if (k < 0.45) for (let i = 0; i < 8; i++) {
+          const a = i * 0.785, r0 = r + 1, r1 = r + (f.hit ? 6 : 4)
+          lineThick(Math.round(x + Math.cos(a) * r0), Math.round(y + Math.sin(a) * r0 * 0.6), Math.round(x + Math.cos(a) * r1), Math.round(y + Math.sin(a) * r1 * 0.6), 1, f.hit ? c('ye3') : c('white'))
+        }
+        for (let i = 0; i < 4; i++) { const a = i * 1.57 + 0.6; lineThick(x, y, Math.round(x + Math.cos(a) * 7), Math.round(y + Math.sin(a) * 4), 1, c('br1')) }   // ひび
+        if (k < 0.3) disc(x, y, 2, c('white'))
+      }
+      else if (f.k === 'quake') {                    // 地面を叩いた衝撃波: 2 重の輪が外へ広がり、地面にひびの線
+        const r = f.r * (0.3 + 0.7 * Math.min(1, k * 1.6))
+        ringPx(x, y, r, k < 0.5 ? c('white') : c('br5'), 0.6)
+        ringPx(x, y, r * 0.7, c('br4'), 0.6, true)
+        if (k < 0.6) for (let i = 0; i < 8; i++) { const a = i * 0.785 + 0.3; lineThick(Math.round(x + Math.cos(a) * 5), Math.round(y + Math.sin(a) * 3), Math.round(x + Math.cos(a) * r * 0.5), Math.round(y + Math.sin(a) * r * 0.3), 1, c('br1')) }
+      }
+      else if (f.k === 'stab') {                     // ナイフの突き: 体から前へ、細い白い線が伸びて消える
+        const ca = Math.cos(f.ang), sa = Math.sin(f.ang), r0 = 6 + f.r * 0.3 * k, r1 = 6 + f.r * Math.min(1, k * 2.5)
+        for (let r = r0; r <= r1; r++) px(Math.round(x + ca * r), Math.round(y + sa * r), r > r1 - 3 ? c('white') : c('gy5'))
+        px(Math.round(x + ca * r1 - sa), Math.round(y + sa * r1 + ca), c('gy6')); px(Math.round(x + ca * r1 + sa), Math.round(y + sa * r1 - ca), c('gy6'))
+      }
+      else if (f.k === 'bash') {                     // 盾で押す: 「[」が太くなって前へ飛び出す
+        const dir = [Math.cos(f.ang), Math.sin(f.ang)]
+        drawBracket(x, y, dir, 11 + 12 * k, 8 + 2 * k, k < 0.6 ? 2 : 1, c('white'), k < 0.5 ? c('gy6') : c('gy4'))
+      }
       else if (f.k === 'num') { text(f.text, x - textW(f.text) / 2 + 1, y + 1, c('black')); text(f.text, x - textW(f.text) / 2, y, c(f.c)) }
       else if (f.k === 'zap') {
         for (let i = 0; i + 1 < f.pts.length; i++) {
@@ -593,8 +699,9 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
           for (let j = 1; j <= n; j++) {
             const nx = ax + ((bx - ax) * j) / n - cx + (j < n ? ((hash(j + i * 7, Math.floor(f.t * 40)) % 7) - 3) : 0)
             const ny = ay + ((by - ay) * j) / n - cy + (j < n ? ((hash(j * 3, i + Math.floor(f.t * 40)) % 7) - 3) : 0)
-            lineThick(Math.round(px0), Math.round(py0), Math.round(nx), Math.round(ny), 1, c('ye3'))
+            lineThick(Math.round(px0), Math.round(py0), Math.round(nx), Math.round(ny), 1, c(f.big ? 'white' : 'ye3'))
             lineThick(Math.round(px0) + 1, Math.round(py0), Math.round(nx) + 1, Math.round(ny), 1, c('bl5'))
+            if (f.big) lineThick(Math.round(px0), Math.round(py0) + 1, Math.round(nx), Math.round(ny) + 1, 1, c('ye3'))   // 満タンの雷は太く
             px0 = nx
             py0 = ny
           }
@@ -667,6 +774,54 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     ditherDisc(x, y, r, hot ? c('white') : c('gy4'), 0)
     ringPx(x, y, r, hot ? c('white') : c('gy5'), 1)
     const col = hot ? c('ye3') : c('white')
+    if (JOBS[L.job].heavy) {                         // ハンマーの印
+      rect(x - 7, y - 9, 12, 7, col)
+      lineThick(x - 1, y - 2, x - 1, y + 9, 2, col)
+      return
+    }
+    if (JOBS[L.job].kind === 'lightning') {          // 雷術師の印（稲妻）
+      lineThick(x + 4, y - 9, x - 3, y, 2, col)
+      lineThick(x - 3, y, x + 3, y, 2, col)
+      lineThick(x + 3, y, x - 4, y + 9, 2, col)
+      return
+    }
+    if (JOBS[L.job].kind === 'boomerang') {          // ブーメランの印（く の字）。戻ってくるまでは薄く
+      const cc = L.boomOut ? c('gy4') : col
+      lineThick(x - 7, y - 6, x + 1, y + 1, 2, cc)
+      lineThick(x + 1, y + 1, x - 6, y + 8, 2, cc)
+      return
+    }
+    if (JOBS[L.job].kind === 'magic') {              // 氷術師の印（雪の結晶）
+      for (let i = 0; i < 3; i++) { const a = (i * Math.PI) / 3; lineThick(Math.round(x - Math.cos(a) * 8), Math.round(y - Math.sin(a) * 8), Math.round(x + Math.cos(a) * 8), Math.round(y + Math.sin(a) * 8), 1, col) }
+      return
+    }
+    if (JOBS[L.job].backstab) {                      // 盗賊の印（ナイフ）
+      lineThick(x - 7, y + 7, x + 5, y - 5, 2, col)
+      lineThick(x + 5, y - 5, x + 8, y - 8, 1, col)
+      lineThick(x - 8, y + 3, x - 3, y + 8, 1, col)
+      return
+    }
+    if (JOBS[L.job].kind === 'heal') {               // 僧侶の印（十字）
+      rect(x - 2, y - 9, 5, 18, col)
+      rect(x - 8, y - 3, 17, 5, col)
+      return
+    }
+    if (JOBS[L.job].kind === 'bomb') {               // 爆弾の印
+      disc(x - 1, y + 2, 6, col)
+      disc(x - 1, y + 2, 4, hot ? c('ye3') : c('gy4'))
+      lineThick(x + 3, y - 3, x + 6, y - 7, 1, col)
+      px(x + 7, y - 8, c('or2')); px(x + 8, y - 9, c('ye2'))
+      return
+    }
+    if (JOBS[L.job].taunt) {                         // 盾の印
+      rect(x - 6, y - 8, 13, 2, col)
+      lineThick(x - 6, y - 8, x - 6, y + 2, 1, col)
+      lineThick(x + 6, y - 8, x + 6, y + 2, 1, col)
+      lineThick(x - 6, y + 2, x, y + 9, 1, col)
+      lineThick(x + 6, y + 2, x, y + 9, 1, col)
+      lineThick(x, y - 5, x, y + 5, 1, col)
+      return
+    }
     if (JOBS[L.job].kind === 'arrow') {              // 矢の印
       lineThick(x - 8, y + 8, x + 7, y - 7, 1, col)
       lineThick(x + 3, y - 8, x + 8, y - 8, 1, col)
@@ -696,7 +851,8 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     if (L.lvl < MAX_LV) rect(px0 + 6, py0 + 19, Math.round(((pw - 12) * L.xp) / xpNeed(L.lvl)), 1, c('bl4'))
     drawButton(PREV_BTN, '<')
     drawButton(NEXT_BTN, '>')
-    drawButton(PAUSE_BTN, '=', false, 2)
+    drawButton(PAUSE_BTN, '', false)
+    for (let i = 0; i < 3; i++) rect(PAUSE_BTN.x + 6, PAUSE_BTN.y + 6 + i * 4, PAUSE_BTN.w - 12, 2, c('gy6'))   // ハンバーガー（三本線）
     if (S.isManual?.(L)) drawSwingBtn(S, L)
     drawMini(S, t)
     // ボスの体力
@@ -720,8 +876,11 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     }
   }
 
+  // タイトル・ポーズ・ゲームオーバー・クリアの画面: 後ろの世界を暗い色にする（網掛けの代わり）。
+  // 世界と HUD を分けて描くとき（main.js）は、世界の絵のほうを暗くする（draw の world で）。HUD の絵の透明（255）はそのまま
+  const dimmed = (S, ui) => ui.screen === 'title' || ui.paused || S.state === 'over' || (S.state === 'win' && S.winT >= 2.5)
   function overlayDark() {
-    for (let y = 0; y < H; y++) for (let x = y & 1; x < W; x += 2) fb[y * W + x] = c('black')
+    for (let i = 0; i < fb.length; i++) if (fb[i] !== 255) fb[i] = dark(fb[i])
   }
   const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
   function drawTitle(ui, t) {
@@ -739,12 +898,46 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     if (ui.hasSave) drawButton(CONT_BTN, 'CONTINUE', ui.hot === 'cont')
     if (ui.hasSave) text(ui.saveInfo || '', W / 2 - textW(ui.saveInfo || '', 1) / 2, 206, c('gy4'), 1)
   }
-  function drawPause(ui) {
-    overlayDark()
-    text('PAUSE', W / 2 - textW('PAUSE', 3) / 2, 50, c('white'), 3)
-    for (const b of MENU_BTNS) drawButton(b, b.id === 'sound' ? (ui.sound ? 'SOUND ON' : 'SOUND OFF') : b.label, false)
-    const tips = ['DRAG OR WASD: MOVE', 'TAP A FRIEND: SWITCH (Q E)', 'RED AREAS: DANGER, STEP OUT!']
-    tips.forEach((l, i) => text(l, W / 2 - textW(l, 1) / 2, 176 + i * 10, c('gy5'), 1))
+  // ポーズ: 助けた仲間の一覧（歩く絵・名前・職・今のレベル・次のレベルまでの経験値）。押すとその仲間に切り替わる
+  function drawPause(S, ui, t) {
+    rect(0, 0, W, H, c('black'))                  // 一覧は字が多いので、後ろの世界は見せない
+    text('PAUSE', 4, 4, c('white'), 2)
+    const info = `TIME ${fmtTime(S.t)}  ALLIES ${S.allies.filter((a) => a.alive).length}`
+    text(info, W - 4 - textW(info, 1), 7, c('gy5'), 1)
+    const pages = listPages(S), page = listPage(S, ui)
+    const people = listPeople(S)
+    const fallen = people.filter((a) => a.fallen).length
+    if (fallen) { const f = `FALLEN ${fallen}`; text(f, W - 4 - textW(info, 1) - 8 - textW(f, 1), 7, c('rd3'), 1) }
+    people.slice(page * LIST_PER, page * LIST_PER + LIST_PER).forEach((a, i) => {
+      const { x, y, w, h } = listCell(i)
+      const me = a === S.leader
+      rect(x, y, w, h, me ? c('bl1') : a.fallen ? c('black') : c('gy1'))
+      if (a.fallen) {                               // 倒れた仲間: 暗い枠に、暗くした止まった絵と赤い印
+        rect(x, y, w, 1, c('gy1')); rect(x, y + h - 1, w, 1, c('gy1')); rect(x, y, 1, h, c('gy1')); rect(x + w - 1, y, 1, h, c('gy1'))
+        drawPerson({ job: a.job, fx: 0, fy: 1, face: 1, flash: 0, moving: false, anim: 0 }, x + 10, y + h - 1, { nobar: true, still: true })
+        for (let yy = y + 1; yy < y + h - 1; yy++) for (let xx = x + 1; xx < x + 20; xx++) fb[yy * W + xx] = dark(dark(fb[yy * W + xx]))
+        text(a.name, x + 21, y + 3, c('gy4'), 1)
+        const lv = `LV${a.lvl}`
+        text(lv, x + w - 3 - textW(lv, 1), y + 3, c('gy3'), 1)
+        text(JOBS[a.job].label, x + 21, y + 10, c('gy3'), 1)
+        text('FALLEN', x + w - 3 - textW('FALLEN', 1), y + 10, c('rd3'), 1)
+        return
+      }
+      drawPerson({ job: a.job, fx: 0, fy: 1, face: 1, flash: 0, moving: true, anim: t + i * 0.17 }, x + 10, y + h - 1, { nobar: true })
+      text(a.name, x + 21, y + 3, me ? c('ye3') : c('white'), 1)
+      const lv = `LV${a.lvl}`
+      text(lv, x + w - 3 - textW(lv, 1), y + 3, c('ye2'), 1)
+      text(JOBS[a.job].label, x + 21, y + 10, c('gy5'), 1)
+      const nx = a.lvl >= MAX_LV ? 'MAX' : `NEXT ${Math.max(1, Math.ceil(xpNeed(a.lvl) - a.xp))}`
+      text(nx, x + w - 3 - textW(nx, 1), y + 10, c('bl4'), 1)
+    })
+    if (pages > 1) {
+      drawButton(PAGE_PREV, '<', false)
+      drawButton(PAGE_NEXT, '>', false)
+      const pg = `${page + 1}/${pages}`
+      text(pg, (PAGE_PREV.x + PAGE_PREV.w + PAGE_NEXT.x) / 2 - textW(pg, 1) / 2, H - 16, c('white'), 1)
+    }
+    for (const b of MENU_BTNS) drawButton(b, b.id === 'sound' ? (ui.sound ? 'SOUND ON' : 'SOUND OFF') : b.label, false, 1)
   }
   function drawOver(S, ui, t) {
     overlayDark()
@@ -765,7 +958,7 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     const perfect = S.rescued === S.total && S.lost === 0
     const title = perfect ? 'PERFECT - NO ONE LOST' : solo ? 'SOLO CLEAR' : S.rescued === S.total ? 'ALL RESCUED' : 'CLEARED'
     text(title, W / 2 - textW(title, 2) / 2, 66, perfect || solo ? c('ye3') : c('white'), 2)
-    const rows = [`RESCUED ${S.rescued}/${S.total}`, `LOST ${S.lost}`, `ALIVE ${S.allies.length}`, `TIME ${fmtTime(S.t)}`, `KILLS ${S.kills}`]
+    const rows = [`TIME ${fmtTime(S.t)}${S.newBest ? '  NEW RECORD!' : S.best ? `  (BEST ${fmtTime(S.best)})` : ''}`, `RESCUED ${S.rescued}/${S.total}`, `LOST ${S.lost}`, `ALIVE ${S.allies.length}`, `KILLS ${S.kills}`]   // クリア時間（早解き）
     rows.forEach((l, i) => text(l, W / 2 - textW(l, 1) / 2, 100 + i * 12, c('white'), 1))
     if (Math.floor(t * 2) % 2 === 0) text('TAP TO RETURN TO TITLE', W / 2 - textW('TAP TO RETURN TO TITLE', 1) / 2, 176, c('gy5'), 1)
   }
@@ -782,6 +975,12 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     const L = S.leader
     // 地面の予兆・爆発の印は、人の下に
     for (const h of S.hazards) if (h.k) drawTele(h, cx, cy, t)
+    if (L?.praying) {                                // 僧侶の癒やしの円（地面に、薄い緑の市松と、回る縁）
+      const x = Math.round(L.x - cx), y = Math.round(L.y - cy) + 4
+      ditherDisc(x, y, PRAY.r, c('gr5'), Math.floor(t * 6) & 1)
+      ringPx(x, y, PRAY.r, c('gr6'), 1)
+      for (let i = 0; i < 8; i++) { const a = t * 2 + (i * Math.PI) / 4; px(Math.round(x + Math.cos(a) * PRAY.r), Math.round(y + Math.sin(a) * PRAY.r), c('white')) }
+    }
     const ents = []
     for (const g of S.cages) if (!g.opened) ents.push({ y: g.y, k: 'cage', o: g })
     for (const a of S.allies) ents.push({ y: a.y, k: 'ally', o: a })
@@ -794,9 +993,17 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       if (en.k === 'ally') {
         if (o === L) ringPx(fx, fy - 1, 8, Math.floor(t * 4) & 1 ? c('ye3') : c('ye1'), 0.5)
         drawPerson(o, fx, fy)
-        if (o === L && S.isManual?.(o) && o.aimLine && o.aimDir) {
+        if (o === L && o.boomCast && o.aimLine && o.aimDir && S.boomLoopAt) {   // ブーメラン: 通る輪の点線
+          const lp = { sx: o.x, sy: o.y - 4, dx: o.aimDir[0], dy: o.aimDir[1], D: o.boomDist }
+          const n = Math.round(lp.D * 2.6)                // 道のりにそって、2 点おきに 1 点空ける点線
+          for (let i = 3; i < n - 3; i++) {
+            if (i % 3 === 2) continue
+            const [wx, wy] = S.boomLoopAt(lp, (i / n) * 2 * Math.PI, null)
+            px(Math.round(wx - cx), Math.round(wy - cy), Math.abs(i / n - 0.5) < 0.06 ? c('ye3') : c('white'))   // 折り返しの所は黄色
+          }
+        } else if (o === L && S.isManual?.(o) && o.aimLine && o.aimDir) {
           // 狙っている向きの線（点線）。弓は遠くまで、剣は届く所まで
-          const [ax, ay] = o.aimDir, len = JOBS[o.job].kind === 'arrow' ? 70 : 30
+          const [ax, ay] = o.aimDir, kd = JOBS[o.job].kind, len = kd === 'boomerang' ? o.boomDist : kd === 'arrow' || kd === 'magic' || kd === 'lightning' ? 70 : 30   // ブーメランは届く所まで
           for (let r = 14; r <= len; r += 3) px(Math.round(fx + ax * r), Math.round(fy - 8 + ay * r), r > len - 8 ? c('ye3') : c('white'))
         }
         if (o === L && S.isManual?.(o)) {
@@ -805,6 +1012,29 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
           for (let r = 12; r <= 15; r++) px(Math.round(cx0 + ax * r), Math.round(cy0 + ay * r), c('ye3'))
           px(Math.round(cx0 + ax * 13 - ay * 2), Math.round(cy0 + ay * 13 + ax * 2), c('ye3'))
           px(Math.round(cx0 + ax * 13 + ay * 2), Math.round(cy0 + ay * 13 - ax * 2), c('ye3'))
+        }
+        if (o === L && o.guarding && o.guardDir) {   // 盾を構えている: 正面に「[」の形（構えてすぐのジャストガードの間は白く光る）
+          const just = S.t - o.guardT < GUARD.just
+          drawBracket(fx, fy - 8, o.guardDir, 11, 7, 1, just ? c('white') : c('gy6'), just ? c('white') : c('gy4'))
+        }
+        if (o === L && o.gauge != null) {             // 雷術師が溜めている: 頭の上にゲージ（満タンで光る）
+          const gy = fy - SH - 4
+          rect(fx - 7, gy, 14, 3, c('black'))
+          rect(fx - 6, gy + 1, Math.round(12 * o.gauge), 1, o.gauge >= 1 ? (Math.floor(t * 16) & 1 ? c('white') : c('ye3')) : c(JOBS[o.job].heavy ? 'or2' : 'ye1'))
+        }
+        if (o === L && o.casting && o.aimLine) {      // 氷術師が溜めている: 頭の上にゲージ（満タンで光る）
+          const k = Math.min(1, (S.t - o.castT - SHOOT.tap) / FREEZE.charge), gy = fy - SH - 4
+          rect(fx - 7, gy, 14, 3, c('black'))
+          rect(fx - 6, gy + 1, Math.round(12 * k), 1, o.castReady ? (Math.floor(t * 16) & 1 ? c('white') : c('bl5')) : c('bl4'))
+        }
+        if (o === L && o.throwing && o.aimLine && o.throwAt) {   // 爆弾を狙っている: 山なりの線と、落ちる所の爆発の範囲
+          const tx = Math.round(o.throwAt[0] - cx), ty = Math.round(o.throwAt[1] - cy)
+          for (let i = 1; i < 12; i++) {
+            const k = i / 12
+            px(Math.round(fx + (tx - fx) * k), Math.round(fy - 8 + (ty - fy + 8) * k - Math.sin(k * Math.PI) * 26), i & 1 ? c('white') : c('gy5'))
+          }
+          ringPx(tx, ty, THROW.r, Math.floor(t * 8) & 1 ? c('or2') : c('ye2'), 1, true)
+          px(tx, ty, c('white')); px(tx - 1, ty, c('or2')); px(tx + 1, ty, c('or2')); px(tx, ty - 1, c('or2')); px(tx, ty + 1, c('or2'))
         }
         if (o === L && o.charge != null) {          // 弓を引いている: 頭の上にためのゲージ。引き絞りきったら光る
           const k = Math.min(1, o.charge / SHOOT.full), full = k >= 1
@@ -824,15 +1054,16 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     for (const bl of S.blasts) drawBlast(bl, cx, cy, t)
     for (const p of S.projs) drawProj(p, cx, cy)
     drawFx(S)
+    if (layer === 'world' && dimmed(S, ui)) overlayDark()   // 世界だけの絵: ここで暗くする（HUD の絵は透明のまま）
     if (layer === 'all') drawTop(S, ui, t)
   }
   function drawTop(S, ui, t) {
-    if (ui.screen !== 'title') drawHud(S, ui, t)
+    if (ui.screen !== 'title' && !ui.paused) drawHud(S, ui, t)
     if (ui.screen === 'title') drawTitle(ui, t)
-    else if (ui.paused) drawPause(ui)
+    else if (ui.paused) drawPause(S, ui, t)
     else if (S.state === 'over') drawOver(S, ui, t)
     else if (S.state === 'win') drawWin(S, t)
   }
 
-  return { draw, drawMap, drawFx, drawProj, text, rect, px }
+  return { draw, drawMap, drawFx, drawProj, text, rect, px, tileSets: () => ({ SETS, CASTLE_SET }) }   // tileSets: タイルの絵（tools/pixel.mjs が下書きに書き出す）
 }

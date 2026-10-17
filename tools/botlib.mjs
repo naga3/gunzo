@@ -2,8 +2,9 @@
 import { createSim } from '../src/sim.js'
 import { createFlow, TILE, MW, MH } from '../src/world.js'
 
+// 難しさは GUNZO_DIFF（easy・normal・hard）。本番と同じ決まり（硬い当たりなど。manual）で、操作キャラは自動で攻撃させる（botLeader）
 export function makeRun(seed = 7) {
-  const S = createSim({ seed })
+  const S = createSim({ seed, diff: process.env.GUNZO_DIFF || 'normal', manual: true, botLeader: true })
   const nav = createFlow(S.world)
   let navKey = -1
   const goTo = (tx, ty) => {

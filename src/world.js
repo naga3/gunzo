@@ -66,7 +66,8 @@ const PROFILE = [
   { water: 0.64, tree: 0.68, rock: 0.04, deco: 0.04 },
 ]
 
-export function generateWorld(seed = 7) {
+// guards: 見張りの数の倍率（難しさ）
+export function generateWorld(seed = 7, guards = 1) {
   const rng = mulberry32(seed)
   const tiles = new Uint8Array(MW * MH)
   const biome = new Uint8Array(MW * MH)
@@ -236,7 +237,9 @@ export function generateWorld(seed = 7) {
   // --- 敵 ---
   const enemies = []
   const camps = []
-  const placeGroup = (cx, cy, tier, bi, kindOverride, rMin, rMax, budgetMul = 1, campId = -1) => {
+  // starter: 開始地点のそばのやさしい見張り（難しさで数を変えない）
+  // 難しさ（guards）は、同じ配置のまま敵を足す・減らすだけにする（世界の乱数の進み方を変えない。足す分は別の乱数で）
+  const placeGroup = (cx, cy, tier, bi, kindOverride, rMin, rMax, budgetMul = 1, campId = -1, starter = false) => {
     const pool = POOLS[bi]
     let budget = budgetOf(tier, rng()) * budgetMul
     const kinds = []
@@ -248,16 +251,24 @@ export function generateWorld(seed = 7) {
       kinds.push(k)
       budget -= cost
     }
-    for (const k of kinds) {
+    const g = starter ? 1 : guards
+    const keep = Math.max(1, Math.round(kinds.length * Math.min(1, g)))   // 減らす分（easy）: 置く場所は同じように選んで、置かない
+    let r2 = (cx * 73856093) ^ (cy * 19349663) ^ 0x5bd1e995                 // 足す分（hard）の乱数
+    const rng2 = () => { r2 = (r2 * 1103515245 + 12345) & 0x7fffffff; return r2 / 0x80000000 }
+    const extra = g > 1 ? Math.floor(kinds.length * (g - 1) + rng2()) : 0
+    const place = (k, rnd, put) => {
       for (let tries = 0; tries < 50; tries++) {
-        const a = rng() * Math.PI * 2, r = rMin + rng() * (rMax - rMin)
+        const a = rnd() * Math.PI * 2, r = rMin + rnd() * (rMax - rMin)
         const x = cx * TILE + 8 + Math.cos(a) * r, y = cy * TILE + 8 + Math.sin(a) * r
-        if (walkable(x, y) && (inCastle(Math.floor(x / TILE), Math.floor(y / TILE)) || !inCastle(Math.floor(x / TILE), Math.floor(y / TILE)))) {
-          enemies.push({ kind: k, x, y, camp: campId, tier })
+        if (walkable(x, y)) {
+          if (put) enemies.push({ kind: k, x, y, camp: campId, tier })
           break
         }
       }
     }
+    kinds.forEach((k, i) => place(k, rng, i < keep))
+    const src = kindOverride ?? pool
+    for (let i = 0; i < extra; i++) place(src[(rng2() * src.length) | 0], rng2, true)
   }
   // 最初の捕虜（開始地点にいちばん近いもの）はやさしく
   const nearStart = [...spots].sort((a, b) => Math.hypot(a.tx - START.x, a.ty - START.y) - Math.hypot(b.tx - START.x, b.ty - START.y))
@@ -267,7 +278,7 @@ export function generateWorld(seed = 7) {
     s.tier = tier
     s.camp = camps.length
     camps.push({ x: s.tx * TILE + 8, y: s.ty * TILE + 8, tier, spot: s.id })
-    if (easyMul.has(s)) placeGroup(s.tx, s.ty, 1, 0, s === nearStart[0] ? ['slime', 'slime', 'bat'] : null, 26, 60, easyMul.get(s), s.camp)
+    if (easyMul.has(s)) placeGroup(s.tx, s.ty, 1, 0, s === nearStart[0] ? ['slime', 'slime', 'bat'] : null, 26, 60, easyMul.get(s), s.camp, true)
     else placeGroup(s.tx, s.ty, tier, s.biome, null, 26, 66, 1, s.camp)
   }
   // 最短の道の番人（避けて通れるが、道の上にいる）

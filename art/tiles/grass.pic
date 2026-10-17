@@ -1,0 +1,317 @@
+# 背景のタイル「草原」。決まりは art/tiles/GROUP.md
+# 地面は緑 3 色（a 主・b 明るい草・c 暗い根元）だけで明るさの差を小さくし、敵や人を目立たせる。
+# 草むらは「V 字の 2 点＋根元 1 点」と「1 本」の 2 種。飾りは花ときのこ。
+# 木・岩は x（紺の輪郭 1 点）、丸い形、左上の光と右下の影、足もとに影（c）。まわりは ground1 の草
+title grass
+palette gunzo
+anim water water1:670 water2:670
+color a 12
+color b 13
+color c 11
+color d 8
+color e 48
+color f 31
+color g 20
+color h 21
+color i 19
+color j 10
+color k 14
+color l 18
+color m 6
+color n 3
+color o 5
+color p 4
+color q 59
+color r 61
+color s 60
+color v 26
+color x 1
+color M 7
+
+pic ground1 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaababaaaaaaaaaa
+  aaaacaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaababaaa
+  aaaaaaaaaaacaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaabaaaaaaaaa
+  aaaaaacaaaaaaaaa
+  aaaaaaaaaaaaaaba
+  aababaaaaaaaaaca
+  aaacaaaaaaaaaaaa
+  aaaaaaaaaabaaaaa
+  aaaaaaaaaacaaaaa
+
+pic ground2 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaababa
+  aaaaaaaaaaaaacaa
+  aaaaaaaaaaaaaaaa
+  aababaaaaaaaaaaa
+  aaacaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaabaaaaaaaa
+  aaaaaaacaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaabaaaaaababaaa
+  aaacaaaaaaacaaaa
+  aaaaaababaaaaaaa
+  aaaaaaacaaaaaaba
+  aaaaaaaaaaaaaaca
+
+pic ground3 16 16
+  aaaaaaaaaaaaaaaa
+  aaaabaaaaaaaaaaa
+  aaaacaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaababaaa
+  aaaaaaaaaaacaaaa
+  aaaaaaaaaaaaaaaa
+  ababaaaaaaaaaaaa
+  acaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaabaaaaaaba
+  aaaaaaacaaaaaaca
+  aaaaaaaaaaaaaaaa
+  aaababaaaaaaaaaa
+  aaaacaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+
+pic ground4 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaababaaaa
+  aaaaaaaaaacaaaaa
+  aaaaaaaaaaaaaaaa
+  aaabaaaaaaaaaaaa
+  aaacaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaababa
+  aaaaaaaaaaaaacaa
+  aaaaaaaaaaaaaaaa
+  aaaaabaaaaaaaaaa
+  aaaaacaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  ababaaaaaaaaaaaa
+  aacaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+
+pic deco1 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaadaaaaaaaaaaa
+  aaadfdaaaaaaaaaa
+  aaaadaaaaaaaaaaa
+  aaaacaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaababaaaaaa
+  aaaaaaaacaaaaaaa
+  aaaaaaaaaaaeaaaa
+  aaaaaaaaaaefeaaa
+  aaaaaaaaaaaeaaaa
+  aaaaaaaaaaacaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+
+pic deco2 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaafaaaa
+  aaaaaaaaaafdfaaa
+  aaaaaaaaaaafaaaa
+  ababaaaaaaacaaaa
+  aacaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaeaaaaaaaaaaaa
+  aaefeaaaaaaaaaaa
+  aaaeaaaaaaaaaaaa
+  aaacaaaaababaaaa
+  aaaaaaaaaacaaaaa
+  aaaaaaaaaaaaaaaa
+
+pic deco3 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaavvaaa
+  aaaaaaaaaavdvvaa
+  aaaaaaaaaaaddaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaabaaaammaaaaaa
+  aaacaaaaonaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+
+pic path1 16 16
+  gggggggggggggagg
+  ggghgggggggggggg
+  gggggggggigggggg
+  ggggbgbggggggggg
+  gggggcgggggggggg
+  gghggggggggghggg
+  gggggggggggggggg
+  gggihggggggggggg
+  gggggggggghggggg
+  aggggggggggggggg
+  gggggggggggggigg
+  ggggggggghgggggg
+  gggggiiggggggggg
+  gggggggggggggggg
+  ggggggggggggbgbg
+  gggggggggggggcgg
+
+pic path2 16 16
+  gggggggggggggggg
+  ggggghggggggggag
+  gggggggggggggggg
+  gigggggggggggggg
+  gggggggggggghggg
+  gggggggggggggggg
+  ggggbgbggggggggg
+  gggggcgggggggggg
+  ggggggggggggiigg
+  gggggggggggggggg
+  ghgggggggggggggg
+  gggggggggggggggg
+  ggggggggghgggggg
+  gggggggggggggggg
+  gggiggggggggggga
+  gggggggggggggggg
+
+pic path3 16 16
+  ggaggggggggggggg
+  gggggggggggggigg
+  gghggggggggggggg
+  gggggggggggggggg
+  ggggggggbgbggggg
+  gggggggggcgggggg
+  gggggggggggggggg
+  gggggiiggggggggg
+  gggggggggggggggg
+  gggggggggggghggg
+  gggggggggggggggg
+  gihggggggggggggg
+  gggggggggggggggg
+  gggggggggigggggg
+  gggggggggggggggg
+  ggggggggggggggag
+
+pic tree1 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaxxxxxxaaaaa
+  aaaxxkkkbbcxxaaa
+  aaxkkkbbbbccjxaa
+  axkkbbbbbccccjxa
+  axkbbbbbcccccjxa
+  xkbbbbbccccccjjx
+  xkbbbbcccccccjjx
+  xbbbcccccccccjjx
+  xbbccccccccjjjjx
+  axccccccccjjjjxa
+  aaxxjcccjjjjxxaa
+  aababaxilxaaaaca
+  aaacaaxilxaaaaaa
+  aaacccxxxxcccaaa
+  aaaaccccccccaaaa
+
+pic tree2 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaxxxxxxaaaaa
+  aaaxxkkkbbcxxaaa
+  aaxkkkbbbbccjxaa
+  axkkbbbbbccccjxa
+  axkbvbbbcccccjxa
+  xkbbbbbccvcccjjx
+  xkbbbbcccccccjjx
+  xbbbccccvcccjjjx
+  xbbvccccccccjjjx
+  axccccccccjjjjxa
+  aaxxjcccjjjjxxaa
+  aaaaaaaxilxaaaaa
+  aaaaaaaxilxaaaba
+  aaaccaxxxxccaaba
+  aaaaccccccccaaaa
+
+pic rock1 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaaaaaa
+  aaababaaaaaaaaaa
+  aaaacaxxxxxxaaaa
+  aaaaxxMMmmmmxxaa
+  aaaxMMmmmmmmmoxa
+  aaxMmmmmmmmmooxa
+  aaxmmmmmmmmoooxa
+  aaxmmmmmmoooopxa
+  aaxmmmooooopppxa
+  aaaxoooooppppxaa
+  aaaaxxxxxxxxxaaa
+  aaaacccccccccaaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaabaaaaa
+  aaaaaaaaaacaaaaa
+
+pic rock2 16 16
+  aaaaaaaaaaaaaaaa
+  aaaaaaaaaaaababa
+  aaaaaaaaaaaaacaa
+  aaaaaaaaaaaaaaaa
+  aaaaaaxxxxxxaaaa
+  aaaaxxMMmmmmxxaa
+  aaaxMMmmmmmmmoxa
+  aaxMmmmmpmmmooxa
+  aaxmmmmmmpmoooxa
+  aaxmmmmmmoooopxa
+  aaxmmmooooopppxa
+  aaaxoooooppppxaa
+  aaaaxxxxxxxxxaaa
+  aaaacccccccccaaa
+  aaaaaaacaaaaaaba
+  aaaaaaaaaaaaaaca
+
+pic water1 16 16
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqqqqqqqq
+  qqrqqqqqqqqqqqqq
+  qqsssqqqqqqqqqqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqrqqqqqq
+  qqqqqqqqqsssqqqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqqqqqqqq
+  qqqqrqqqqqqqqqqq
+  qqqqsssqqqqqqqqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqqqrqqqq
+  qqqqqqqqqqqsssqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqqqqqqqq
+
+pic water2 16 16
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqrqqqqqqqqq
+  qqqqsssqqqqqqqqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqqqqqrqq
+  qqqqqqqqqqqsssqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqrqqqqqqq
+  qqqqqqsssqqqqqqq
+  qqqqqqqqqqqqqqqq
+  qqqqqqqqqqqqqqqr
+  qqqqqqqqqqqqqsss
+  qqqqqqqqqqqqqqqq
