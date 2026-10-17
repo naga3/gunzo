@@ -1,7 +1,9 @@
 GIMP Palette
-Name: GUNZO 64
+Name: GUNZO
 Columns: 8
-#
+# gunzo の色の表（ゲームと絵の元。src/palette.js は node tools/pixel.mjs build がここから作る）
+# 色は後ろに足すだけ。並べ替え・消すはしない（絵は番号で色を覚えている）。色みを変えるのはよい（全部の絵に効く）
+# 1 行に 1 色: 赤 緑 青（0〜255） 名前（コードで P.名前 として使う）
  13  11  20 black
  28  26  43 ink
  46  44  68 gy1

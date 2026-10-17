@@ -9,10 +9,14 @@
   html, body { margin: 0; height: 100%; background: #0d0b14; overflow: hidden; }
   body { display: flex; align-items: center; justify-content: center; }
   canvas { image-rendering: pixelated; touch-action: none; user-select: none; -webkit-user-select: none; }
+  /* 世界（1 ドット大きい）を、カメラの半端な分だけずらして見せる枠。HUD（#c）はその上に重ねる */
+  #view { position: relative; overflow: hidden; }
+  #world { position: absolute; left: 0; top: 0; pointer-events: none; }
+  #c { position: absolute; left: 0; top: 0; }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<div id="view"><canvas id="world"></canvas><canvas id="c"></canvas></div>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

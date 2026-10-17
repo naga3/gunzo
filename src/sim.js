@@ -2,7 +2,7 @@
 import { TILE, MW, MH, T, B, solidTile, generateWorld, createFlow, CASTLE } from './world.js'
 import { ENEMY_SIZE } from './enemysprites.js'
 import {
-  HP_MUL, DMG_MUL, JOBS, JOB_LIST, JOB_COUNTS, ENEMIES, BOSS, MAX_LV, xpNeed, lvMul, SYLLABLES, CLOTHES, HAIRS, SWING, MASS,
+  HP_MUL, DMG_MUL, JOBS, JOB_LIST, JOB_COUNTS, ENEMIES, BOSS, MAX_LV, xpNeed, lvMul, SYLLABLES, SWING, SHOOT, MASS,
 } from './data.js'
 
 export const VIEW_W = 320
@@ -23,7 +23,7 @@ export function createSim(opts = {}) {
   const S = {
     world, flow, t: 0, state: 'play', winT: 0,
     allies: [], enemies: [], cages: [], camps: [], projs: [], blasts: [], fx: [], hazards: [],
-    actA: [], actE: [], leader: null, cam: { x: 0, y: 0 }, input: { mx: 0, my: 0, swing: false },
+    actA: [], actE: [], leader: null, cam: { x: 0, y: 0 }, camF: { x: 0, y: 0 }, input: { mx: 0, my: 0, swing: false, pressed: false, hold: false, aim: null },
     nextId: 1, rescued: 0, total: 0, lost: 0, kills: 0, tpCool: 0, banner: null, bannerT: 0,
     flowKey: -1, boss: null, bossFight: false, bossFightT: 0, hazardsPrev: [], hitLog: null,
     seen: new Uint8Array(MW * MH), deaths: [], deadIdx: new Set(), hitstop: 0, shakeT: 0,
@@ -85,7 +85,7 @@ export function createSim(opts = {}) {
       cd: rnd(0, 0.4), flash: 0, healT: rnd(0, 1.5),
       wanderT: rnd(0, 2), wx: 0, wy: 0, still: true, stuckT: 0, lastX: x, lastY: y, stuckChk: 0, stkT: 0, noSepT: 0, dodgeAt: 0, hurtT: -99, retreat: false,
       path: null, pi: 0, pathT: 0, pathLife: 0.7, pgx: -1, pgy: -1, ignore: null, ignoreT: 0, goal: 'idle',
-      cloth: pick(CLOTHES), hair: pick(HAIRS), name: pick(SYLLABLES) + pick(SYLLABLES), anim: rnd(0, 4),
+      name: pick(SYLLABLES) + pick(SYLLABLES), anim: rnd(0, 4),
     }
     u.hp = u.maxhp
     S.allies.push(u)
@@ -311,10 +311,10 @@ export function createSim(opts = {}) {
     if (shake) S.shakeT = 0.15
   }
   // 振った向きへ押し出す。重い敵ほど動かない
-  function knock(e, ca, sa) {
+  function knock(e, ca, sa, kb = SWING.kb) {
     if (e.kind === 'boss') return
     const m = e.def.big ? MASS.big : MASS[e.def.shape] ?? 1
-    const v = SWING.kb / m
+    const v = kb / m
     if (v < 25) return
     e.kbx = ca * v
     e.kby = sa * v
@@ -337,6 +337,19 @@ export function createSim(opts = {}) {
       hurtEnemy(e, dmgOf(L) * SWING.wallDmg, L)
       if (e.hp > 0 && e.state !== 'stun') { e.state = 'stun'; e.stunT = SWING.wallStun; e.tele = null }
     }
+  }
+  // 弓を自分で射る: charge（引いた秒数）で、速射から強い矢まで。向いている方へ
+  function shootManual(u, charge) {
+    const k = Math.min(1, charge / SHOOT.full), strong = k >= 1
+    const mul = strong ? SHOOT.strong : SHOOT.quick + (SHOOT.strong - SHOOT.quick) * 0.5 * k
+    const speed = strong ? SHOOT.strongSpeed : SHOOT.speed, range = strong ? SHOOT.strongRange : SHOOT.range
+    shoot(u, u.x + u.fx * 100, u.y + u.fy * 100, dmgOf(u, mul), { team: 'ally', speed, life: range / speed, kind: 'arrow', pierce: strong ? 99 : 0, r: strong ? 6 : 5 })
+    const p = S.projs[S.projs.length - 1]
+    p.manual = true
+    p.strong = strong
+    u.cd = SHOOT.cd
+    u.swingT = S.t
+    if (strong) { ring(u.x, u.y - 4, 'white', 10, 0.2); spark(u.x + u.fx * 8, u.y - 4 + u.fy * 8, 'white', 5, 60) }
   }
   function swing(u) {
     u.cd = SWING.cd
@@ -364,7 +377,8 @@ export function createSim(opts = {}) {
       }
       return false
     }
-    if (S.fx.length < FXMAX) S.fx.push({ k: 'slash', x: u.x, y: u.y - 4, vx: 0, vy: 0, t: 0, life: 0.12, ang, r: SWING.r, half: SWING.half })
+    const slash = { k: 'slash', x: u.x, y: u.y - 4, vx: 0, vy: 0, t: 0, life: 0.2, ang, r: SWING.r, half: SWING.half, hit: false }
+    if (S.fx.length < FXMAX) S.fx.push(slash)
     const dmg = dmgOf(u)
     const ca = Math.cos(ang), sa = Math.sin(ang)
     for (const e of S.actE) {
@@ -403,6 +417,7 @@ export function createSim(opts = {}) {
     }
     const c = nearestCage(u.x, u.y, 30)
     if (c && inArc(c.x, c.y, 30)) bashCage(u, c)
+    slash.hit = S.hitstop > 0                        // 何かに当たった振りは、弧を太く明るく
   }
 
   // --- 檻 ---
@@ -412,8 +427,6 @@ export function createSim(opts = {}) {
     tiles[c.ty * MW + c.tx] = T.PATH
     const avg = S.allies.length ? S.allies.reduce((s, a) => s + a.lvl, 0) / S.allies.length : 1
     const u = newAlly(c.job, c.x, c.y, Math.max(1, Math.floor(avg * 0.6)))
-    u.cloth = c.cloth
-    u.hair = c.hair
     u.name = c.name
     S.rescued++
     spark(c.x, c.y - 4, 'ye2', 14, 70)
@@ -565,6 +578,53 @@ export function createSim(opts = {}) {
   }
 
   // --- 操作キャラ ---
+  // 仲間（操作キャラも）は敵をすり抜けない。重なったら、重さ（MASS）に応じて分けて押し戻す（軽い敵は押せる、重い敵とボスには止められる。
+  // 盾は重いので、敵を止める壁になる）。飛ぶ敵は浮いているので、すり抜ける。仲間どうしは今までどおり柔らかい押し合い（separation）だけ。
+  // 近くの敵は、体の升目（buildBodies）から探す
+  const ALLY_MASS = 1.2, SHIELD_MASS = 2.5, ALLY_R = 4
+  function pushBodies(u) {
+    const tx = Math.floor(u.x / TILE), ty = Math.floor(u.y / TILE)
+    const near = []
+    for (let j = ty - 1; j <= ty + 1; j++) {
+      if (j < 0 || j >= MH) continue
+      for (let i = tx - 1; i <= tx + 1; i++) {
+        if (i < 0 || i >= MW) continue
+        for (let k = bodyHead[j * MW + i]; k >= 0; k = bodyNext[k]) if (bodies[k].def) near.push(bodies[k])
+      }
+    }
+    const LEADER_MASS = JOBS[u.job].taunt ? SHIELD_MASS : ALLY_MASS, LEADER_R = ALLY_R
+    for (const e of near) {
+      if (e.hp <= 0 || e.def.atk === 'flyer') continue
+      const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy), min = LEADER_R + e.rad
+      if (d >= min) continue
+      const nx = d > 0.01 ? dx / d : u.fx || 1, ny = d > 0.01 ? dy / d : u.fy || 0
+      const over = min - d
+      const m = e.kind === 'boss' ? Infinity : e.def.big ? MASS.big : MASS[e.def.shape] ?? 1
+      const toEnemy = m === Infinity ? 0 : LEADER_MASS / (LEADER_MASS + m)
+      if (toEnemy > 0) stepEnemy(e, nx, ny, over * toEnemy, 1)   // 敵も壁にはめり込まない
+      const left = min - Math.hypot(e.x - u.x, e.y - u.y)        // 敵が壁で動けなかった分も、こちらが下がる
+      if (left > 0) { moveBody(u, -nx * left, 0); moveBody(u, 0, -ny * left) }
+    }
+  }
+  // 自動で狙う相手: 届く範囲の敵のうち、近いもの（向いている方を少し優先）。返す: 向き [x, y] か null
+  function autoAim(u, range) {
+    let best = null, bs = Infinity
+    for (const e of S.actE) {
+      if (e.hp <= 0) continue
+      const dx = e.x - u.x, dy = e.y - u.y, d = Math.hypot(dx, dy)
+      if (d > range + e.rad || d < 0.01) continue
+      const cos = (dx * u.fx + dy * u.fy) / d
+      const score = d * (1.6 - 0.6 * cos)
+      if (score < bs) { bs = score; best = [dx / d, dy / d] }
+    }
+    return best
+  }
+  function faceTo(u, [x, y]) {
+    const m = Math.hypot(x, y) || 1
+    u.fx = x / m
+    u.fy = y / m
+    if (Math.abs(u.fx) > 0.1) u.face = u.fx > 0 ? 1 : -1
+  }
   function updateLeader(u, dt) {
     const J = JOBS[u.job]
     const inp = S.input
@@ -573,8 +633,9 @@ export function createSim(opts = {}) {
     if (mag > 1) { mx /= mag; my /= mag }
     u.moving = false
     if (mag > 0.05) {
-      moveBody(u, mx * J.speed * dt, 0)
-      moveBody(u, 0, my * J.speed * dt)
+      const sp = J.speed * (u.charge != null ? SHOOT.slow : 1)   // 弓を引いている間は遅い
+      moveBody(u, mx * sp * dt, 0)
+      moveBody(u, 0, my * sp * dt)
       u.moving = true
       const fl = Math.hypot(mx, my)
       u.fx = mx / fl
@@ -582,12 +643,44 @@ export function createSim(opts = {}) {
       if (Math.abs(mx) > 0.1) u.face = mx > 0 ? 1 : -1
     }
     if (isManual(u)) {
-      // 押したのが振り終わる少し前でも、受け付けておいて振れるようになったら振る
+      // 入力（main.js）: swing＝振る（剣。押した・離した瞬間）、pressed＝押した瞬間・hold＝押している間（弓）、aim＝狙う向き（無ければ自動）
+      // 押したのが少し早くても、受け付けておいて、振れる・射てるようになったら動く
       if (inp.swing) { u.swingReq = S.t; inp.swing = false }
-      if (u.cd <= 0 && S.t - (u.swingReq ?? -9) < 0.15) { u.swingReq = -9; swing(u) }
+      if (inp.pressed) { u.pressReq = S.t; inp.pressed = false }
+      const bow = J.kind === 'arrow'
+      // 狙いの向き: ずらして狙っていればその向き。弓を引き絞っている（少し長く押した）ときは、前にずらして狙った向き（覚えておく）。
+      // それ以外（軽くタップ）は、近くの敵へ自動で
+      const drawing = bow && u.charge != null && u.charge > SHOOT.tap
+      const dir = () => inp.aim ?? (drawing ? u.lastAim : null) ?? autoAim(u, bow ? SHOOT.range : SWING.r + 40) ?? [u.fx, u.fy]
+      u.aiming = bow && (inp.hold || u.charge != null)   // 狙うのは弓だけ（剣は向いている方へ振る）
+      u.aimLine = bow && (!!inp.aim || drawing)        // 狙いの線は、ずらして狙っているときと、引き絞っているときだけ
+      if (u.aiming) u.aimDir = dir()
+      if (bow) {                                   // 弓: 押したら引き始め、押している間は引き絞り、離したら射る
+        if (u.charge == null && u.cd <= 0 && (inp.hold || S.t - (u.pressReq ?? -9) < 0.15)) { u.pressReq = -9; u.charge = 0 }
+        if (u.charge != null) {
+          if (inp.hold) u.charge += dt
+          else {
+            if (inp.aim) u.lastAim = inp.aim          // ずらして狙った向きを覚える（次に引き絞るときは、ここから）
+            faceTo(u, dir())
+            shootManual(u, u.charge)
+            u.charge = null
+            u.aimLine = false
+            inp.aim = null
+          }
+        }
+        return
+      }
+      // 剣: 押した瞬間に、向いている方へ振る（ボタンでも Z でも）
+      if (u.cd <= 0 && S.t - (u.pressReq ?? -9) < 0.15) {
+        u.pressReq = -9
+        swing(u)
+      }
+      u.swingReq = -9
+      inp.aim = null
       return
     }
     inp.swing = false
+    inp.pressed = false
     if (u.cd > 0) return
     if (J.kind === 'heal') { healPulse(u); return }
     const e = nearestEnemy(u.x, u.y, J.range + 2)
@@ -1159,6 +1252,7 @@ export function createSim(opts = {}) {
     for (const p of S.projs) {
       p.life -= dt
       p.spin += dt * 14
+      if (p.strong && Math.random() < 0.7) spark(p.x - p.vx * 0.03, p.y - p.vy * 0.03, Math.random() < 0.5 ? 'or2' : 'ye2', 1, 25)   // 炎の矢の火の粉
       if (p.kind === 'boom') {
         if (p.phase === 0) {
           p.x += p.vx * dt
@@ -1191,6 +1285,12 @@ export function createSim(opts = {}) {
             p.hit.add(e)
             if (p.kind === 'magic') { explode(p.x, p.y, p.splash, p.dmg, 'ally', p.by); p.life = 0; break }
             hurtEnemy(e, p.dmg, p.by)
+            if (p.manual) {                            // 自分で射た矢: 短いヒットストップと、矢の向きへのノックバック
+              const v = Math.hypot(p.vx, p.vy) || 1
+              if (e.hp > 0) knock(e, p.vx / v, p.vy / v, p.strong ? SHOOT.strongKb : SHOOT.kb)
+              hitFeel(p.strong ? SHOOT.strongStop : SHOOT.stop, p.strong && e.hp <= 0)
+              e.flash = 0.16
+            }
             if (p.pierce-- <= 0) { p.life = 0; break }
           }
         }
@@ -1213,6 +1313,7 @@ export function createSim(opts = {}) {
   // --- 操作の切り替え ---
   function switchTo(u) {
     if (!u || !u.alive || u === S.leader) return false
+    if (S.leader) { S.leader.charge = null; S.leader.aiming = false }   // 引いていた弓・狙いは、切り替えたらやめる
     S.leader = u
     S.flowKey = -1
     ring(u.x, u.y, 'white', 16, 0.3)
@@ -1234,11 +1335,24 @@ export function createSim(opts = {}) {
     }
     return best ? switchTo(best) : false
   }
+  // カメラ: camF はドットより細かい位置、cam はその整数の部分（世界はここから描き、半端な分は main.js が画面ごとずらしてなめらかに見せる）
+  // 職を替える（試し場の切り替え用）。体力は新しい職の満タンに
+  function setJob(u, job) {
+    if (!JOBS[job]) return
+    u.job = job
+    u.maxhp = u.hp = Math.round(JOBS[job].hp * lvMul(u.lvl))
+    u.charge = null
+    u.aiming = u.aimLine = false
+    u.cd = 0
+    ring(u.x, u.y, 'white', 16, 0.3)
+  }
   function updateCamera() {
     const L = S.leader
-    S.cam.x = Math.round(Math.max(0, Math.min(MW * TILE - VIEW_W, L.x - VIEW_W / 2)))
-    S.cam.y = Math.round(Math.max(0, Math.min(MH * TILE - VIEW_H, L.y - VIEW_H / 2)))
-    if (S.shakeT > 0) { S.cam.x += Math.round(rnd(-1, 1) * SWING.shake); S.cam.y += Math.round(rnd(-1, 1) * SWING.shake) }
+    S.camF.x = Math.max(0, Math.min(MW * TILE - VIEW_W, L.x - VIEW_W / 2))
+    S.camF.y = Math.max(0, Math.min(MH * TILE - VIEW_H, L.y - VIEW_H / 2))
+    if (S.shakeT > 0) { S.camF.x += Math.round(rnd(-1, 1) * SWING.shake); S.camF.y += Math.round(rnd(-1, 1) * SWING.shake) }
+    S.cam.x = Math.floor(S.camF.x)
+    S.cam.y = Math.floor(S.camF.y)
   }
   function reveal(tx, ty, r) {
     for (let y = Math.max(0, ty - r); y <= Math.min(MH - 1, ty + r); y++) {
@@ -1296,6 +1410,7 @@ export function createSim(opts = {}) {
     S.hazards = []
     buildBodies()
     for (const a of S.allies) if (a.alive) updateAlly(a, dt)
+    if (MANUAL) for (const a of S.actA) if (a.alive) pushBodies(a)   // 仲間と敵の、硬い当たり（ボットと check.mjs では入れない）
     for (const e of S.actE) if (e.hp > 0) updateEnemy(e, dt)
     for (const c of S.cages) c.flash -= dt
     updateBlasts(dt)
@@ -1341,14 +1456,14 @@ export function createSim(opts = {}) {
   world.spots.forEach((sp, i) => {
     S.cages.push({
       id: i, tx: sp.tx, ty: sp.ty, x: sp.tx * TILE + 8, y: sp.ty * TILE + 8, hp: 10, maxhp: 10, flash: 0, opened: false,
-      job: jobs[i], cloth: pick(CLOTHES), hair: pick(HAIRS), name: pick(SYLLABLES) + pick(SYLLABLES), region: sp.region,
+      job: jobs[i], name: pick(SYLLABLES) + pick(SYLLABLES), region: sp.region,
     })
   })
   S.total = S.cages.length
   S.camps = world.camps
   world.enemies.forEach((en, i) => { const e = newEnemy(en.kind, en.x, en.y, en.camp); e.idx = i })
   spawnBoss()
-  S.leader = newAlly('sword', world.start.x, world.start.y)
+  S.leader = newAlly(opts.hero ?? 'sword', world.start.x, world.start.y) // 主人公の職（試し場で変えられる）
   S.leader.name = 'HERO'
   updateCamera()
   refreshFlow()
@@ -1398,8 +1513,8 @@ export function createSim(opts = {}) {
     return {
       v: 1, seed: world.seed, t: S.t, rescued: S.rescued, lost: S.lost, kills: S.kills,
       leader: S.allies.indexOf(S.leader),
-      allies: S.allies.map((a) => ({ job: a.job, x: Math.round(a.x), y: Math.round(a.y), lvl: a.lvl, xp: +a.xp.toFixed(2), hp: Math.round(a.hp), name: a.name, cloth: a.cloth, hair: a.hair })),
-      cages: S.cages.map((c) => ({ o: c.opened ? 1 : 0, job: c.job, cloth: c.cloth, hair: c.hair, name: c.name })),
+      allies: S.allies.map((a) => ({ job: a.job, x: Math.round(a.x), y: Math.round(a.y), lvl: a.lvl, xp: +a.xp.toFixed(2), hp: Math.round(a.hp), name: a.name })),
+      cages: S.cages.map((c) => ({ o: c.opened ? 1 : 0, job: c.job, name: c.name })),
       dead: [...S.deadIdx],
       seen: b64(S.seen),
     }
@@ -1411,13 +1526,13 @@ export function createSim(opts = {}) {
     S.kills = d.kills
     d.cages.forEach((c, i) => {
       const cg = S.cages[i]
-      cg.job = c.job; cg.cloth = c.cloth; cg.hair = c.hair; cg.name = c.name
+      cg.job = c.job; cg.name = c.name
       if (c.o) { cg.opened = true; tiles[cg.ty * MW + cg.tx] = T.PATH }
     })
     S.allies = []
     for (const a of d.allies) {
       const u = newAlly(a.job, a.x, a.y, a.lvl)
-      Object.assign(u, { xp: a.xp, hp: a.hp, name: a.name, cloth: a.cloth, hair: a.hair })
+      Object.assign(u, { xp: a.xp, hp: a.hp, name: a.name })
       u.maxhp = Math.round(JOBS[a.job].hp * lvMul(a.lvl))
     }
     S.leader = S.allies[Math.max(0, d.leader)]
@@ -1440,7 +1555,7 @@ export function createSim(opts = {}) {
 
   Object.assign(S, {
     serialize, restore, canSave, spawnEnemy: (k, x, y) => { const e = newEnemy(k, x, y, -9); e.active = true; return e },
-    step, switchTo, cycle, tapAt, newAlly, isManual, openCage, boxBlocked, teleportNearView, inArena, healPulse,
+    step, switchTo, cycle, tapAt, newAlly, isManual, setJob, openCage, boxBlocked, teleportNearView, inArena, healPulse,
     bossPhase: () => (S.boss ? bossPhase(S.boss) : 0), nearestCage,
   })
   return S

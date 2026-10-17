@@ -1,0 +1,5 @@
+{
+  "palette": "gunzo.gpl",
+  "after": "node tools/pixel.mjs build",
+  "cwd": ".."
+}

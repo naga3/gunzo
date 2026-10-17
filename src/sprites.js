@@ -1,11 +1,15 @@
-// 味方のドット絵（16x24）。文字の表で描き、右向きの絵を左右反転して使う。
+// 味方のドット絵（16x16）。文字の表で描き、右向きの絵を左右反転して使う。
+// 向きごとの一枚絵（上下左右）を Pixel で描いた職は、そちらを使う（art/allies/<職>.pic → src/art.js。tools/pixel.mjs）
 // 基本の体（BASE）の上に、職ごとの絵（帽子・服・武器）を重ねる。'.' は透明、'_' は基本の絵を消す
 // 色の文字:
 //   o 輪郭  s 肌  S 肌の影  e 目  E 目の光
 //   h 髪  H 髪の影  j 髪の光
-//   c 服の色（人ごとに違う）  C その影  D その光
+//   c 服の色  C その影  D その光
 //   u U V 職の服（主・影・光）  p P ズボン（主・影）  g G 革（主・影）  l 革の光
 //   m M n 金属（光・中・影）  w 白  y Y 金（主・光）  r R 赤（主・影）  x X z 職ごとの特別な色
+import * as ART from './art.js' // tools/pixel.mjs が作る。作る途中（古い art.js）でも読めるように、名前ごとには取り出さない
+export const ANIMS = Object.fromEntries(Object.entries(ART.DIR_ART ?? {}).map(([job, a]) => [job, a.anims ?? {}])) // 職 → 動き
+export const DIR_ART = ART.DIR_ART ?? {}
 export const W = 16
 export const H = 16
 
@@ -164,27 +168,33 @@ for (const [job, fr] of Object.entries(SPRITES)) {
   }
 }
 
-// 服・髪の色の濃淡（主・影・光）
-const CLOTH_SH = { bl3: ['bl3', 'bl2', 'bl4'], rd3: ['rd3', 'rd2', 'rd4'], ye1: ['ye1', 'or1', 'ye2'], pu3: ['pu3', 'pu2', 'pu4'], tl2: ['tl2', 'tl1', 'tl3'], pk2: ['pk2', 'pk1', 'pk3'], or2: ['or2', 'or1', 'ye1'], gy6: ['gy6', 'gy4', 'white'] }
-const HAIR_SH = { br1: ['br1', 'br0', 'br2'], br3: ['br3', 'br2', 'br4'], ye2: ['ye2', 'ye1', 'ye3'], ink: ['ink', 'black', 'gy2'], rd2: ['rd2', 'rd1', 'rd3'], gy5: ['gy5', 'gy4', 'gy6'] }
+// 向きごとの一枚絵（Pixel で描いたもの）。down・up・left・right と、動きのコマ（down_walk1 など）。描いていない向きは横向きで代える
+export const DIR_DATA = {}
+for (const [job, art] of Object.entries(DIR_ART)) {
+  const toArr = (rows) => { const arr = new Uint8Array(W * H); rows.forEach((row, y) => [...row].forEach((ch, x) => { arr[y * W + x] = ch.charCodeAt(0) })); return arr }
+  DIR_DATA[job] = {}
+  for (const [d, rows] of Object.entries(art)) if (d !== 'colors' && d !== 'anims') DIR_DATA[job][d] = toArr(rows)
+}
+
+// 文字 → 色の名前（パレット）。人ごとに色を変える仕組みは無い（2026-10-17 にやめた。色の違いは絵のデータとして作る）
+// Pixel で描いた職（DIR_ART）は、その絵のファイルの color の行がすべて。ほかの職（文字の表の絵）は、この決まった色
 const FIXED = {
   o: 'ink', s: 'sk3', S: 'sk2', e: 'ink', E: 'white', p: 'br2', P: 'br1', g: 'br3', G: 'br1', l: 'br5',
   m: 'gy6', M: 'gy4', n: 'gy3', w: 'white', y: 'ye1', Y: 'ye3', r: 'rd3', R: 'rd1',
   u: 'bl2', U: 'bl1', V: 'bl3', x: 'or2', X: 'or1', z: 'tl2',
+  c: 'bl3', C: 'bl2', D: 'bl4', h: 'br3', H: 'br2', j: 'br4',
 }
-// 職・服の色・髪の色ごとの、文字 → パレット番号の表（一度作ったら使い回す）
+// 職ごとの、文字 → 色の名前
+export function roleNames(job) {
+  return { ...FIXED, ...(JOB_ART[job]?.extra ?? {}), ...(DIR_ART[job]?.colors ?? {}) }
+}
+// 職ごとの、文字 → パレット番号の表（一度作ったら使い回す）
 const tableCache = new Map()
-export function colorTable(job, cloth, hair, P) {
-  const key = `${job}|${cloth}|${hair}`
-  let t = tableCache.get(key)
+export function colorTable(job, P) {
+  let t = tableCache.get(job)
   if (t) return t
   t = new Uint8Array(256).fill(255)
-  const set = (ch, name) => { t[ch.charCodeAt(0)] = P[name] }
-  for (const [ch, name] of Object.entries(FIXED)) set(ch, name)
-  for (const [ch, name] of Object.entries(JOB_ART[job]?.extra ?? {})) set(ch, name)
-  const cs = CLOTH_SH[cloth] ?? CLOTH_SH.bl3, hs = HAIR_SH[hair] ?? HAIR_SH.br3
-  set('c', cs[0]); set('C', cs[1]); set('D', cs[2])
-  set('h', hs[0]); set('H', hs[1]); set('j', hs[2])
-  tableCache.set(key, t)
+  for (const [ch, name] of Object.entries(roleNames(job))) t[ch.charCodeAt(0)] = P[name]
+  tableCache.set(job, t)
   return t
 }

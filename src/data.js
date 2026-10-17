@@ -5,13 +5,13 @@ export const xpNeed = (lv) => 4 + 2.4 * lv
 export const lvMul = (lv) => 1 + 0.1 * (lv - 1)
 
 // 職。kind は攻撃の種類（sim.js の attackWith）。pref はこの距離を保つ。band は操作キャラからの好む距離の帯
-// manual: 操作しているときは自動で攻撃せず、自分で振る（sim.js の swing。いまは剣士だけ）
+// manual: 操作しているときは自動で攻撃せず、自分で振る・射る（sim.js の swing・shootManual。剣士と弓）
 export const JOB_LIST = ['sword', 'spear', 'shield', 'bow', 'xbow', 'axe', 'boom', 'mage', 'bomb', 'volt', 'heal']
 export const JOBS = {
   sword: { label: 'SWORD', hp: 34, speed: 72, atk: 6, range: 20, cd: 0.55, kind: 'melee', manual: true, pref: 14, band: [26, 64], sight: 150 },
   spear: { label: 'SPEAR', hp: 30, speed: 66, atk: 5, range: 40, cd: 0.8, kind: 'pierce', pref: 32, band: [30, 70], sight: 150 },
   shield: { label: 'SHIELD', hp: 56, speed: 58, atk: 4, range: 18, cd: 0.8, kind: 'melee', taunt: true, pref: 14, band: [16, 44], sight: 130 },
-  bow: { label: 'BOW', hp: 20, speed: 70, atk: 4, range: 140, cd: 0.85, kind: 'arrow', pref: 100, band: [70, 120], sight: 170 },
+  bow: { label: 'BOW', hp: 20, speed: 70, atk: 4, range: 140, cd: 0.85, kind: 'arrow', manual: true, pref: 100, band: [70, 120], sight: 170 },
   xbow: { label: 'XBOW', hp: 20, speed: 64, atk: 13, range: 175, cd: 2.2, kind: 'bolt', pref: 125, band: [80, 130], sight: 190 },
   axe: { label: 'AXE', hp: 28, speed: 66, atk: 8, range: 72, cd: 1.1, kind: 'axe', pref: 55, band: [44, 84], sight: 130 },
   boom: { label: 'BOOM', hp: 24, speed: 70, atk: 4, range: 105, cd: 1.4, kind: 'boomerang', pref: 75, band: [56, 100], sight: 140 },
@@ -106,9 +106,11 @@ export const SWING = {
   r: 24, half: 1.05, cd: 0.3, deflect: 30, back: 2, stun: 0.7, bossStun: 1.0,
   stop: 0.05, bigStop: 0.09, kb: 190, kbTime: 0.16, wallDmg: 0.5, wallStun: 0.4, shake: 2,
 }
+// 操作キャラが自分で射る弓。押してすぐ離すと速射、押し続けると引き絞る（full 秒で引き絞りきり、離すと強い矢）。引いている間は歩く速さが slow 倍
+// quick・full は剣士の攻撃力の倍率。強い矢は貫く。stop はヒットストップ、kb はノックバック（重さで割る）
+// tap: これより短く押して離したら「軽いタップ」（狙いの線を出さず、近くの敵へ自動で）
+export const SHOOT = { tap: 0.12, cd: 0.32, full: 1.4, slow: 0.5, quick: 1.2, strong: 8, speed: 240, strongSpeed: 380, range: 170, strongRange: 230, stop: 0.03, strongStop: 0.07, kb: 90, strongKb: 170 }
 // ノックバックの重さ（大きいほど動かない）。ボスは動かない
 export const MASS = { blob: 1, bat: 0.7, human: 1.2, beast: 1.4, heavy: 4, big: 3 }
 
 export const SYLLABLES = ['KA', 'RO', 'MI', 'TA', 'NE', 'SU', 'HI', 'YO', 'RA', 'KE', 'MU', 'TO', 'NA', 'SA', 'FU', 'LE', 'SHI', 'KO', 'RI', 'DO']
-export const CLOTHES = ['bl3', 'rd3', 'ye1', 'pu3', 'tl2', 'pk2', 'or2', 'gy6']
-export const HAIRS = ['br1', 'br3', 'ye2', 'ink', 'rd2', 'gy5']

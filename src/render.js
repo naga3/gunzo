@@ -2,7 +2,8 @@
 import { P } from './palette.js'
 import { TILE, MW, MH, T, B } from './world.js'
 import { JOBS, VIEW_W, VIEW_H, MAX_LV, xpNeed } from './sim.js'
-import { SPRITE_DATA, colorTable, W as SW, H as SH } from './sprites.js'
+import { SHOOT } from './data.js'
+import { SPRITE_DATA, DIR_DATA, ANIMS, colorTable, W as SW, H as SH } from './sprites.js'
 import { ENEMY_DATA, ENEMY_SIZE, enemyTable } from './enemysprites.js'
 
 export const W = VIEW_W
@@ -35,7 +36,9 @@ const FONT = {
   '<': '001010100010001', '>': '100010001010100', '+': '000010111010000', '%': '101001010100101', '=': '000111000111000',
 }
 
-export function createRenderer(fb) {
+// fb の大きさ（w × h）は、ふだんは画面と同じ。カメラをドットより細かく動かすときは、世界を 1 ドット大きく描く（main.js）
+export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
+  const W = w, H = h
   function px(x, y, col) {
     if (x >= 0 && x < W && y >= 0 && y < H) fb[y * W + x] = col
   }
@@ -269,11 +272,39 @@ export function createRenderer(fb) {
   }
 
   // --- 味方 ---
-  // 足元を (fx, fy) として、16x24 のドット絵を描く（右向きの絵を、左向きなら反転する）
+  // Pixel で描いた職の絵: 人は正面（down）だけ（2026-10-17）。歩いていて、その職の walk_down のコマがあれば、o.anim（秒）に合わせてコマを回す
+  // （向きの絵を描いた職が出てきたら、その向きを使う作りは残してある）
+  // 返す: [絵, 反転するか, 動きのコマか]。一枚絵の無い職は null
+  function dirSprite(o, walking) {
+    const D = DIR_DATA[o.job]
+    if (!D) return null
+    const fx = o.fx ?? 0, fy = o.fy ?? 1
+    let d = Math.abs(fx) > Math.abs(fy) ? (fx > 0 ? 'right' : 'left') : (fy >= 0 ? 'down' : 'up')
+    if (!D[d] && D.down) d = 'down'                // 描いていない向きは正面で
+    if (D[d]) {
+      const A = walking && ANIMS[o.job]?.[`walk_${d}`]
+      if (A) {
+        const fr = A.frames.map((f, i) => [D[f], A.ms[i]]).filter((x) => x[0])
+        if (fr.length > 1 || (fr.length === 1 && fr[0][0] !== D[d])) {
+          const total = fr.reduce((s, x) => s + x[1], 0)
+          let t = (o.anim * 1000) % total, k = 0
+          while (t >= fr[k][1]) { t -= fr[k][1]; k++ }
+          return [fr[k][0], false, true]
+        }
+      }
+      return [D[d], false, false]
+    }
+    const side = d === 'left' || d === 'right' ? d : o.face >= 0 ? 'right' : 'left'
+    if (D[side]) return [D[side], false, false]
+    const other = side === 'right' ? 'left' : 'right'
+    return D[other] ? [D[other], true, false] : null
+  }
+  // 足元を (fx, fy) として、16x16 のドット絵を描く（右向きの絵を、左向きなら反転する。向きごとの一枚絵があればそれ）
   function drawPerson(o, fx, fy, opts = {}) {
     const flash = o.flash > 0
-    const right = o.face >= 0
-    const walk = o.moving && !opts.still
+    const ds = dirSprite(o, o.moving && !opts.still)
+    const right = ds ? !ds[1] : o.face >= 0
+    const walk = o.moving && !opts.still && !ds?.[2]   // 動きのコマで歩くときは、体を上下に揺らさない
     const step = walk ? Math.floor(o.anim * 9) & 1 : 0
     const frame = step ? 'b' : 'a'
     const oy = fy - (SH - 1) - (walk && !step ? 1 : 0) // 歩くとき、足をそろえた瞬間に 1 ドット上がる
@@ -281,9 +312,9 @@ export function createRenderer(fb) {
     // 影
     rect(fx - 5, fy - 2, 11, 2, c('gy1'))
     rect(fx - 4, fy - 3, 9, 1, c('gy1'))
-    const data = SPRITE_DATA[o.job]?.[frame]
+    const data = ds ? ds[0] : SPRITE_DATA[o.job]?.[frame]
     if (data) {
-      const tbl = colorTable(o.job, o.cloth, o.hair, P)
+      const tbl = colorTable(o.job, P)
       const white = c('white')
       for (let y = 0; y < SH; y++) {
         const yy = oy + y
@@ -369,7 +400,7 @@ export function createRenderer(fb) {
   }
 
   function drawCage(cg, fx, fy, t) {
-    const fake = { job: cg.job, cloth: cg.cloth, hair: cg.hair, face: 1, flash: 0, moving: false, anim: t, lvl: 1, hp: 1, maxhp: 1 }
+    const fake = { job: cg.job, face: 1, flash: 0, moving: false, anim: t, lvl: 1, hp: 1, maxhp: 1 }
     drawPerson(fake, fx, fy - 1, { still: true, nobar: true })
     const f = cg.flash > 0
     const bar = f ? c('white') : c('br4')
@@ -394,8 +425,40 @@ export function createRenderer(fb) {
     const a = Math.atan2(p.vy, p.vx)
     switch (p.kind) {
       case 'arrow': case 'enemyArrow': {
-        const col = p.kind !== 'enemyArrow' ? c('gy6') : p.deflected ? c('ye3') : c('rd3')
-        for (let i = 0; i < 6; i++) px(Math.round(x - Math.cos(a) * i), Math.round(y - Math.sin(a) * i), i === 0 ? c('white') : col)
+        // 矢: 先端（やじり）から後ろへ、矢柄、羽。どの向きでも描けるように、向きにそって点を置く
+        const ca = Math.cos(a), sa = Math.sin(a), nx = -sa, ny = ca          // 前と、横
+        const at = (i, side = 0) => [Math.round(x - ca * i + nx * side), Math.round(y - sa * i + ny * side)]
+        const dot = (i, side, col) => { const [xx, yy] = at(i, side); px(xx, yy, col) }
+        if (p.strong) {                              // 引き絞りきった矢: 炎をまとった大きな矢
+          const fl = Math.floor((p.spin ?? 0) * 2)                             // 炎のゆらめき（毎フレーム変わる）
+          const rnd3 = (i, k) => (hash(i * 7 + k, fl) % 3) - 1
+          for (let i = -2; i < 26; i++) {                                      // 炎: やじりの後ろからふくらみ、後ろほど細くなる。外は赤、中は橙、芯は黄
+            const k = (i + 2) / 28
+            const w = 5 * Math.sin(Math.min(1, k * 2.2) * Math.PI / 2) * (1 - k * 0.75) + rnd3(i, 1) * 0.8
+            if (k > 0.6 && hash(i, fl) % 3 === 0) continue                    // 後ろの方は、ちぎれる
+            for (let side = -Math.ceil(w); side <= Math.ceil(w); side++) {
+              const u = Math.abs(side) / (w + 0.01)
+              if (u > 1) continue
+              dot(i + rnd3(i, side + 9), side, u > 0.7 ? c('rd3') : u > 0.4 ? c('or2') : u > 0.15 ? c('ye2') : c('ye3'))
+            }
+          }
+          for (let i = 1; i < 16; i++) dot(i, 0, c(i < 3 ? 'white' : 'br5'))   // 炎の中の矢柄
+          dot(0, 0, c('white')); dot(-1, 0, c('white'))                        // 大きなやじり
+          for (const sd of [-1, 1]) { dot(1, sd, c('gy6')); dot(2, sd, c('gy6')); dot(2, sd * 2, c('gy5')); dot(3, sd * 2, c('gy5')) }
+          for (const sd of [-1, 1]) { dot(13, sd * 1.5, c('or1')); dot(14, sd * 2, c('rd3')); dot(15, sd * 2.5, c('rd3')) }   // 燃える羽
+          break
+        }
+        const enemy = p.kind === 'enemyArrow' && !p.deflected
+        const len = 11
+        const shaft = enemy ? c('rd2') : p.deflected ? c('ye2') : c('br4')
+        const head = enemy ? c('rd4') : c('gy6'), tip = c('white')
+        const feather = c('rd3'), feather2 = enemy ? c('rd1') : c('white')
+        for (let i = 2; i < len - 1; i++) dot(i, 0, shaft)                 // 矢柄
+        dot(0, 0, tip)                                                       // やじり: 先端と、左右に広がる三角
+        dot(1, 0, head); dot(2, -1, head); dot(2, 1, head); dot(1, -0.5, head); dot(1, 0.5, head)
+        dot(len - 3, -1, feather); dot(len - 3, 1, feather)                 // 羽: 後ろへ向かって左右に開く
+        dot(len - 2, -1, feather2); dot(len - 2, 1, feather2); dot(len - 1, -2, feather); dot(len - 1, 2, feather)
+        dot(len - 1, 0, shaft)
         break
       }
       case 'bolt':
@@ -473,6 +536,36 @@ export function createRenderer(fb) {
       lineThick(x, y, x2, y2, 1, blink ? c('rd3') : c('rd4'), 3)
     }
   }
+  // 剣の振り：太い一筆の弧（どの向きにも振れるので、プログラムで描く）。先頭（振り終わりの側）が太く、尾（振り始めの側）へ細く尖る。
+  // 色は 2 つ: 外側が白、内側が水色（当たったら黄）。両側のふちは少しだけ不揃い（形はいつも同じ、決まった乱数）。
+  // 前の 4 割で扇の端から端へ走り、残りで尾が先頭へ縮んで消える。k は 0〜1
+  function drawSlash(f, x, y, k) {
+    const sweep = Math.min(1, k / 0.4)
+    const tail = k < 0.4 ? 1 : Math.max(0, 1 - (k - 0.4) / 0.6)   // 見えている尾の長さ（扇の幅に対して）
+    const R = f.r + 1, span = 2 * f.half, lead = -f.half + span * sweep
+    const head = 11 * (0.4 + 0.6 * tail)                              // 先頭の太さ
+    const cw = Math.cos(f.ang), sw = Math.sin(f.ang)
+    const white = c('white'), inner = c(f.hit ? 'ye2' : 'bl5')
+    const lim = Math.ceil(R + 3)
+    for (let dy = -lim; dy <= lim; dy++) {
+      for (let dx = -lim; dx <= lim; dx++) {
+        const d = Math.hypot(dx, dy)
+        const rel = Math.atan2(dx * -sw + dy * cw, dx * cw + dy * sw)   // 振る向きから見た角度
+        const age = (lead - rel) / span                                 // 刃が通ってからの遅れ（0〜1）
+        if (rel > lead || rel < -f.half || age > tail) continue
+        const a = age / Math.max(tail, 0.01)                            // 0 先頭〜1 尾の端
+        const pos = Math.floor((rel + f.half) * R)                      // 弧にそった位置（点で数える。跡の模様は地面に残る）
+        let th = head * Math.pow(1 - a, 1.1)                            // 先頭が太く、尾へ細く
+        const out = R + (th >= 4 && hash(11, (pos / 5) | 0) % 4 === 0 ? -1 : 0)            // 外のふちを、ときどき 1 点へこませる
+        if (th >= 3) th += (hash(7, (pos / 3) | 0) % 3) - 1                                // 内のふちの不揃い（±1）
+        th = Math.round(th)
+        if (th < 1) continue
+        const off = Math.floor(out + 0.5 - d)                           // 外のふちからの深さ
+        if (off < 0 || off >= th) continue
+        px(x + dx, y + dy, th >= 3 && off >= Math.ceil(th * 0.55) ? inner : white)   // 内側 4 割ほどが水色
+      }
+    }
+  }
   function drawFx(S) {
     const cx = S.cam.x, cy = S.cam.y
     for (const f of S.fx) {
@@ -490,18 +583,7 @@ export function createRenderer(fb) {
         const ghost = { kind: f.kind, def: f.def, anim: 0, state: 'idle', face: f.face, hp: 1, maxhp: 1, rad: f.rad, flash: Math.floor(f.t * 30) & 1 ? 1 : 0 }
         drawEnemy(ghost, x, y + 6, S.t)
       }
-      else if (f.k === 'slash') {
-        // 剣の振り：扇の端から端へ、白い弧が走る
-        const a0 = f.ang - f.half, span = 2 * f.half * Math.min(1, k * 1.8)
-        const n = Math.round(f.r * 2.2)
-        for (let i = 0; i <= n; i++) {
-          const a = a0 + (span * i) / n
-          const ca = Math.cos(a), sa = Math.sin(a)
-          px(Math.round(x + ca * f.r), Math.round(y + sa * f.r), c('white'))
-          px(Math.round(x + ca * (f.r - 1)), Math.round(y + sa * (f.r - 1)), c('white'))
-          if (i & 1) px(Math.round(x + ca * (f.r - 3)), Math.round(y + sa * (f.r - 3)), c('gy5'))
-        }
-      }
+      else if (f.k === 'slash') drawSlash(f, x, y, k)
       else if (f.k === 'num') { text(f.text, x - textW(f.text) / 2 + 1, y + 1, c('black')); text(f.text, x - textW(f.text) / 2, y, c(f.c)) }
       else if (f.k === 'zap') {
         for (let i = 0; i + 1 < f.pts.length; i++) {
@@ -584,8 +666,16 @@ export function createRenderer(fb) {
     const hot = S.t - (L.swingT ?? -9) < 0.1
     ditherDisc(x, y, r, hot ? c('white') : c('gy4'), 0)
     ringPx(x, y, r, hot ? c('white') : c('gy5'), 1)
-    // 剣の印
     const col = hot ? c('ye3') : c('white')
+    if (JOBS[L.job].kind === 'arrow') {              // 矢の印
+      lineThick(x - 8, y + 8, x + 7, y - 7, 1, col)
+      lineThick(x + 3, y - 8, x + 8, y - 8, 1, col)
+      lineThick(x + 8, y - 8, x + 8, y - 3, 1, col)
+      lineThick(x - 9, y + 5, x - 5, y + 9, 1, col)
+      lineThick(x - 7, y + 3, x - 3, y + 7, 1, col)
+      return
+    }
+    // 剣の印
     lineThick(x - 7, y + 7, x + 8, y - 8, 2, col)
     lineThick(x - 8, y + 2, x - 2, y + 8, 1, col)
     rect(x - 10, y + 9, 2, 2, col)
@@ -681,7 +771,12 @@ export function createRenderer(fb) {
   }
 
   // --- 1フレーム ---
-  function draw(S, ui, t) {
+  // layer: 'all'（全部）、'world'（地面・人・演出だけ）、'hud'（HUD・タイトル・ポーズなど。何も描かない所は 255＝透明）
+  function draw(S, ui, t, layer = 'all') {
+    if (layer === 'hud') {
+      fb.fill(255)
+      return drawTop(S, ui, t)
+    }
     drawMap(S, t)
     const cx = S.cam.x, cy = S.cam.y
     const L = S.leader
@@ -699,12 +794,23 @@ export function createRenderer(fb) {
       if (en.k === 'ally') {
         if (o === L) ringPx(fx, fy - 1, 8, Math.floor(t * 4) & 1 ? c('ye3') : c('ye1'), 0.5)
         drawPerson(o, fx, fy)
+        if (o === L && S.isManual?.(o) && o.aimLine && o.aimDir) {
+          // 狙っている向きの線（点線）。弓は遠くまで、剣は届く所まで
+          const [ax, ay] = o.aimDir, len = JOBS[o.job].kind === 'arrow' ? 70 : 30
+          for (let r = 14; r <= len; r += 3) px(Math.round(fx + ax * r), Math.round(fy - 8 + ay * r), r > len - 8 ? c('ye3') : c('white'))
+        }
         if (o === L && S.isManual?.(o)) {
-          // 振る向きの印（向きの絵ができるまでのつなぎ）：体のまわりに小さな矢じり
-          const cx0 = fx, cy0 = fy - 8, ax = o.fx, ay = o.fy
+          // 振る向きの印：体のまわりに小さな矢じり（狙っている間は、狙いの向き）
+          const cx0 = fx, cy0 = fy - 8, [ax, ay] = o.aiming && o.aimDir ? o.aimDir : [o.fx, o.fy]
           for (let r = 12; r <= 15; r++) px(Math.round(cx0 + ax * r), Math.round(cy0 + ay * r), c('ye3'))
           px(Math.round(cx0 + ax * 13 - ay * 2), Math.round(cy0 + ay * 13 + ax * 2), c('ye3'))
           px(Math.round(cx0 + ax * 13 + ay * 2), Math.round(cy0 + ay * 13 - ax * 2), c('ye3'))
+        }
+        if (o === L && o.charge != null) {          // 弓を引いている: 頭の上にためのゲージ。引き絞りきったら光る
+          const k = Math.min(1, o.charge / SHOOT.full), full = k >= 1
+          const gy = fy - SH - 4
+          rect(fx - 7, gy, 14, 3, c('black'))
+          rect(fx - 6, gy + 1, Math.round(12 * k), 1, full ? (Math.floor(t * 16) & 1 ? c('white') : c('ye3')) : c('bl4'))
         }
         if (o === L) {
           const bob = Math.round(Math.sin(t * 6) * 1.5)
@@ -718,6 +824,9 @@ export function createRenderer(fb) {
     for (const bl of S.blasts) drawBlast(bl, cx, cy, t)
     for (const p of S.projs) drawProj(p, cx, cy)
     drawFx(S)
+    if (layer === 'all') drawTop(S, ui, t)
+  }
+  function drawTop(S, ui, t) {
     if (ui.screen !== 'title') drawHud(S, ui, t)
     if (ui.screen === 'title') drawTitle(ui, t)
     else if (ui.paused) drawPause(ui)
@@ -725,5 +834,5 @@ export function createRenderer(fb) {
     else if (S.state === 'win') drawWin(S, t)
   }
 
-  return { draw, drawMap, text, rect, px }
+  return { draw, drawMap, drawFx, drawProj, text, rect, px }
 }
