@@ -26,7 +26,7 @@ for (let r = 0; r < RUNS; r++) {
     const L = S.leader
     const b = S.boss
     // ふつう：ボスの少し手前まで歩く
-    const gx = b.x, gy = b.y + 120
+    const gx = b.x, gy = b.y + 70
     const d = Math.hypot(gx - L.x, gy - L.y)
     S.input.mx = d > 20 ? (gx - L.x) / d : 0
     S.input.my = d > 20 ? (gy - L.y) / d : 0

@@ -7,150 +7,138 @@
 //   u U V 職の服（主・影・光）  p P ズボン（主・影）  g G 革（主・影）  l 革の光
 //   m M n 金属（光・中・影）  w 白  y Y 金（主・光）  r R 赤（主・影）  x X z 職ごとの特別な色
 export const W = 16
-export const H = 24
+export const H = 16
 
+// 頭 7 段、胴 5 段、足 4 段（16x16）
 const HEAD = [
-  '................',
   '.....oooooo.....',
-  '....ohhhhhho....',
-  '...ohhhjjhhho...',
-  '...ohhhhhhhho...',
-  '...ohhhhsssso...',
-  '...ohhssessso...',
-  '...ohhsssssso...',
-  '....oSsssssSo...',
-  '.....oSSSSSo....',
+  '....ohhjhhho....',
+  '....ohhhhsso....',
+  '....ohhsesso....',
+  '....ohssssso....',
+  '.....oSssSo.....',
+  '......oooo......',
 ]
 const TORSO = [
-  '....ocDccccco...',
-  '..ococcDcccoco..',
-  '..ococcccccoco..',
-  '..osoccccCCoso..',
-  '..oSocCCCCCoSo..',
-  '....ogggyggo....',
-  '....occccccCo...',
-  '....ocCCccCCo...',
+  '.....ocDcco.....',
+  '...ococcDcoco...',
+  '...ococcccCoco..'.slice(0, 16),
+  '...osogyggoso...',
+  '.....occCco.....',
 ]
 const LEGS_A = [
-  '....oppppppo....',
-  '....oppPoppo....',
-  '....oppo.ppo....',
-  '....ogGo.oggo...',
-  '....oGGo.oGGo...',
-  '....oooo.oooo...',
+  '.....oppppo.....',
+  '.....opPPpo.....',
+  '.....oggggo.....',
+  '.....oooooo.....',
 ]
 const LEGS_B = [
-  '....oppppppo....',
-  '...oppPoppo.....',
-  '...oppo.oppo....',
-  '..ogGo...oggo...',
-  '..oGGo...oGGo...',
-  '..oooo...oooo...',
+  '.....oppppo.....',
+  '....oppo.ppo....',
+  '...oggo..oggo...',
+  '...oooo..oooo...',
 ]
 export const BASE = { a: [...HEAD, ...TORSO, ...LEGS_A], b: [...HEAD, ...TORSO, ...LEGS_B] }
 
-
 // 職ごとの絵。recolor: 基本の服の色を置きかえる。parts: [y, x, 文字列]（'.' はそのまま、'_' は消す）
-// extra: その職だけの色（x X z）
-const col = (y, x, ch, from, to) => { const out = []; for (let i = from; i <= to; i++) out.push([i, x, ch]); return out }
+// extra: その職だけの色（u U V x X z）
+const col = (x, ch, from, to) => { const out = []; for (let i = from; i <= to; i++) out.push([i, x, ch]); return out }
+const ROBE = [[12, 4, 'ouuUuuuo'], [13, 3, 'ouuuUuuuuo']]
+const ROBE_W = [[12, 4, 'owwUwwwo'], [13, 3, 'owwwUwwwwo']]
 
 export const JOB_ART = {
   sword: {
-    parts: [
-      [2, 14, 'w'], ...col(0, 14, 'mM', 3, 11), [12, 13, 'yyy'], [13, 14, 'g'], [14, 14, 'G'],
-      [4, 4, 'rrrrrrrr'], [10, 11, 'mM'],
-    ],
+    parts: [[1, 14, 'w'], ...col(14, 'm', 2, 8), ...col(15, 'M', 2, 8), [9, 13, 'yyy'], [10, 14, 'g'], [11, 14, 'G'], [2, 5, 'rrrrrr']],
   },
   spear: {
     recolor: { c: 'u', C: 'U', D: 'V' },
     extra: { u: 'bl3', U: 'bl2', V: 'bl4' },
     parts: [
-      [0, 6, 'rrr'], [1, 5, 'oMmMo'], [2, 4, 'oMmmmMo'], [3, 3, 'oMmmmmmMo'], [4, 3, 'oMmmmmmMo'], [5, 4, 'MMMM'],
-      [0, 14, 'w'], [1, 13, 'mwm'], [2, 14, 'M'], ...col(0, 14, 'g', 3, 21), [8, 13, 'r'], [9, 13, 'r'],
+      [0, 3, 'r'], [1, 3, 'r'], [0, 5, 'oMmmMo'], [1, 4, 'oMmmmmMo'], [2, 5, 'MMMM'],
+      [0, 14, 'w'], [1, 13, 'mwm'], ...col(14, 'g', 2, 14), [4, 13, 'r'],
     ],
   },
   shield: {
     recolor: { c: 'M', C: 'n', D: 'm' },
     extra: { x: 'bl3', X: 'bl1', z: 'ye1' },
     parts: [
-      [1, 5, 'onnnno'], [2, 4, 'onMMMMno'], [3, 3, 'onMmmMMMno'], [4, 3, 'onMMMMMMno'], [5, 4, 'nnnn'],
-      [11, 0, 'oxxxXo'], [12, 0, 'oxxzXo'], [13, 0, 'oxzzXo'], [14, 0, 'oxxzXo'], [15, 0, 'oxxxXo'], [16, 1, 'oxxXo'], [17, 2, 'oXXo'], [18, 3, 'oo'],
-      [10, 13, 'nnn'], [11, 13, 'nMn'], [12, 13, 'nnn'], [13, 14, 'g'], [14, 14, 'G'],
+      [0, 5, 'onnnno'], [1, 4, 'onMMMMno'], [2, 5, 'nnnn'],
+      [7, 0, 'oooo'], [8, 0, 'oxxXo'], [9, 0, 'oxzXo'], [10, 0, 'oxzXo'], [11, 0, 'oxxXo'], [12, 1, 'oXXo'], [13, 2, 'oo'],
+      [6, 13, 'nnn'], [7, 13, 'nMn'], [8, 13, 'nnn'], [9, 14, 'g'], [10, 14, 'G'],
     ],
   },
   bow: {
     recolor: { c: 'u', C: 'U', D: 'V' },
     extra: { u: 'gr3', U: 'gr1', V: 'gr4' },
     parts: [
-      [1, 5, 'oUUUUo'], [2, 4, 'oUuuuuUo'], [3, 3, 'oUuuuuuuUo'], [4, 3, 'oUuuuuuuUo'], [5, 4, 'UUuu'],
-      [6, 14, 'g'], [7, 15, 'g'], ...col(0, 15, 'g', 8, 14), [15, 14, 'g'], ...col(0, 14, 'w', 7, 14),
-      [8, 2, 'w'], [9, 2, 'G'], [10, 2, 'G'], [11, 2, 'g'], [12, 2, 'g'],
+      [0, 5, 'oUUUUo'], [1, 4, 'oUuuuuUo'], [2, 5, 'UUuu'],
+      [2, 14, 'g'], [3, 15, 'g'], ...col(15, 'g', 4, 10), [11, 15, 'g'], [12, 14, 'g'], ...col(14, 'w', 3, 11),
+      [6, 2, 'w'], [7, 2, 'G'], [8, 2, 'G'], [9, 2, 'g'],
     ],
   },
   xbow: {
     recolor: { c: 'g', C: 'G', D: 'l' },
     parts: [
-      [1, 5, 'oGGGGo'], [2, 4, 'oGlggGGo'], [3, 3, 'oGglgggGGo'], [4, 3, 'GGGGGGGGGGG'], 
-      [13, 8, 'GggggggG'], [12, 14, 'w'], [14, 14, 'w'], [11, 15, 'G'], [12, 15, 'G'], [13, 15, 'm'], [14, 15, 'G'], [15, 15, 'G'],
+      [0, 5, 'oGGGGo'], [1, 4, 'oGlgggGo'], [2, 4, 'GGGGGGGG'],
+      [10, 8, 'GggggggG'], [9, 14, 'w'], [11, 14, 'w'], ...col(15, 'G', 8, 12), [10, 15, 'm'],
     ],
   },
   axe: {
     recolor: { c: 's', C: 'S', D: 's' },
     parts: [
-      [4, 4, 'rrrrrrrr'], [15, 5, 'wMwMwM'], [10, 5, 'gg'], [10, 9, 'gg'], [11, 6, 'g'], [11, 9, 'g'],
-      [4, 13, 'mmM'], [5, 12, 'mmwM'], [6, 12, 'mmmM'], [7, 13, 'mmM'], ...col(0, 14, 'g', 8, 16),
+      [2, 5, 'rrrrrr'], [10, 6, 'wMwM'],
+      [2, 13, 'mmM'], [3, 12, 'mmwM'], [4, 12, 'mmmM'], [5, 13, 'mmM'], ...col(14, 'g', 6, 13),
     ],
   },
   boom: {
     recolor: { c: 'u', C: 'U', D: 'V' },
     extra: { u: 'tl2', U: 'tl1', V: 'tl3', x: 'gr3', X: 'gr1', z: 'ye2' },
     parts: [
-      [0, 10, 'r'], [1, 11, 'r'], [2, 12, 'ry'],
-      [1, 5, 'oXXXXo'], [2, 4, 'oXxxxxXo'], [3, 3, 'oXxxxxxxXo'], [4, 3, 'XXXXXXXXXXX'],
-      [9, 14, 'yY'], [10, 13, 'yy'], [11, 13, 'y'], [12, 13, 'yy'], [13, 14, 'yY'],
+      [0, 10, 'r'], [0, 11, 'ry'],
+      [0, 5, 'oXXXXo'], [1, 4, 'oXxxxxXo'], [2, 4, 'XXXXXXXX'],
+      [6, 14, 'yY'], [7, 13, 'yy'], [8, 13, 'y'], [9, 13, 'yy'], [10, 14, 'yY'],
     ],
   },
   mage: {
     recolor: { c: 'u', C: 'U', D: 'V' },
     extra: { u: 'pu2', U: 'pu1', V: 'pu3' },
     parts: [
-      [0, 8, 'o'], [1, 7, 'oVo'], [2, 6, 'oUVUo'], [3, 2, 'oUUUUUUUUUUo'], [4, 3, 'oUUUUUUUUo'],
-      ...col(18, 4, '_', 18, 20), [18, 4, 'ouuUuuuo'], [19, 3, 'ouuuUuuuuo'], [20, 3, 'oUUuuuUUuo'],
-      [3, 13, 'RrR'], [4, 13, 'rwr'], [5, 13, 'RrR'], ...col(0, 14, 'g', 6, 20),
+      [0, 7, 'oVo'], [1, 6, 'oUVUo'], [2, 3, 'oUUUUUUUUo'],
+      ...ROBE,
+      [1, 13, 'RrR'], [2, 13, 'rwr'], [3, 13, 'RrR'], ...col(14, 'g', 4, 13),
     ],
   },
   bomb: {
-    recolor: {},
-    parts: [
-      [4, 4, 'GGGGGGGG'], [4, 6, 'yzzy'], [12, 5, 'gggggg'], [13, 5, 'gGggGg'], [14, 5, 'gggggg'],
-      [8, 13, 'oo'], [9, 12, 'onMo'], [10, 12, 'onno'], [11, 13, 'oo'], [7, 14, 'g'], [6, 15, 'o'], [5, 15, 'Y'],
-    ],
     extra: { z: 'bl4' },
+    parts: [
+      [2, 5, 'GGGGGG'], [2, 6, 'yzzy'], [8, 6, 'gggg'], [9, 6, 'gGgg'],
+      [4, 13, 'oo'], [5, 12, 'onMo'], [6, 12, 'onno'], [7, 13, 'oo'], [3, 14, 'g'], [2, 15, 'o'], [1, 15, 'Y'],
+    ],
   },
   volt: {
     recolor: { c: 'u', C: 'U', D: 'V', h: 'y', H: 'x', j: 'Y' },
     extra: { u: 'bl2', U: 'bl1', V: 'bl3', x: 'ye1' },
     parts: [
-      [0, 5, 'y'], [0, 8, 'y'], [0, 10, 'y'], [1, 4, 'y'], [1, 11, 'y'],
-      ...col(18, 4, '_', 18, 20), [18, 4, 'ouuUuuuo'], [19, 3, 'ouuuUuuuuo'], [20, 3, 'oUUuuuUUuo'],
-      [11, 8, 'Y'], [12, 7, 'yY'], [13, 6, 'Yy'], [14, 7, 'Y'],
-      [1, 14, 'Y'], [2, 13, 'y'], [3, 14, 'Y'], [4, 13, 'y'], [5, 14, 'Y'], ...col(0, 14, 'g', 6, 20),
+      [0, 5, 'y'], [0, 7, 'y'], [0, 9, 'y'],
+      ...ROBE,
+      [8, 7, 'Yy'], [9, 6, 'yY'],
+      [1, 14, 'Y'], [2, 13, 'y'], [3, 14, 'Y'], ...col(14, 'g', 4, 13),
     ],
   },
   heal: {
     recolor: { c: 'u', C: 'U', D: 'V' },
     extra: { u: 'gy6', U: 'gy4', V: 'white' },
     parts: [
-      [1, 5, 'owVVwo'], [2, 4, 'oVwwwwVo'], [3, 3, 'oVwwwwwwVo'], [4, 3, 'owwwwwwwwo'], [5, 4, 'wwww'],
-      [15, 5, 'cccccc'],
-      ...col(18, 4, '_', 18, 20), [18, 4, 'owwUwwwo'], [19, 3, 'owwwUwwwwo'], [20, 3, 'oUUwwwUUwo'],
-      [2, 13, 'yyy'], [3, 13, 'y.y'], [4, 13, 'yyy'], ...col(0, 14, 'g', 5, 20),
+      [0, 5, 'owVVwo'], [1, 4, 'oVwwwwVo'], [2, 5, 'wwww'],
+      [10, 6, 'cccc'],
+      ...ROBE_W,
+      [1, 13, 'yyy'], [2, 13, 'y.y'], [3, 13, 'yyy'], ...col(14, 'g', 4, 13),
     ],
   },
 }
 
 // 絵を組み立てる：基本の体 → 色の置きかえ → 職の絵を重ねる
-function compose(base, art) {
+export function compose(base, art) {
   const g = base.map((r) => [...r])
   if (art.recolor) for (const row of g) for (let x = 0; x < W; x++) if (art.recolor[row[x]]) row[x] = art.recolor[row[x]]
   for (const [y, x, str] of art.parts) {

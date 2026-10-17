@@ -79,8 +79,8 @@ function toTitle() {
 
 // --- 入力 ---
 // ドラッグ：始点からの向きで動く（遠くへ引いたら始点が追いかける）。短いタップ：味方に切り替え
-const STICK_MAX = 30
-const DEAD = 5
+const STICK_MAX = 15
+const DEAD = 3
 const drags = new Map()
 const keys = new Set()
 
@@ -134,10 +134,10 @@ function endPointer(e) {
   const d = drags.get(e.pointerId)
   drags.delete(e.pointerId)
   if (!d || d.kind !== 'drag') return
-  if (d.moved < 8 && performance.now() - d.t < 350) {
+  if (d.moved < 4 && performance.now() - d.t < 350) {
     const p = toFb(e)
     // 小さな画面でも押せるよう、画面上の見た目の大きさで判定の半径を決める
-    const radius = Math.max(14, 22 / p.scale)
+    const radius = Math.max(9, 22 / p.scale)
     if (S.tapAt(p.x + S.cam.x, p.y + S.cam.y, radius)) audio.sfx('switch')
   }
 }
@@ -182,7 +182,7 @@ function readInput() {
       mx += (dx / dist) * k
       my += (dy / dist) * k
     }
-    if (d.moved >= 8) ui.stick = { ax: d.ax, ay: d.ay, x: d.x, y: d.y }
+    if (d.moved >= 4) ui.stick = { ax: d.ax, ay: d.ay, x: d.x, y: d.y }
     break
   }
   S.input.mx = mx

@@ -1,6 +1,6 @@
 // 動作確認（Node）: node tools/check.mjs
 import { createSim } from '../src/sim.js'
-import { JOB_LIST } from '../src/data.js'
+import { JOB_LIST, JOBS } from '../src/data.js'
 import { TILE, MW, MH, T, solidTile } from '../src/world.js'
 import { createRenderer, W, H } from '../src/render.js'
 
@@ -114,7 +114,7 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
       for (let i = 0; i < 300; i++) S.step(1 / 30)
       ok(a.hp > 5, `僧侶が味方を治す (${Math.round(a.hp)}/${a.maxhp})`)
     } else {
-      const e = S.spawnEnemy('slime', ox + 40, oy)
+      const e = S.spawnEnemy('slime', ox + Math.min(40, JOBS[job].range - 6), oy)
       e.hp = e.maxhp = 400 // 長持ちさせて、与えたダメージを測る
       e.def = { ...e.def, dmg: 0, speed: 0 }
       let dealt = 0

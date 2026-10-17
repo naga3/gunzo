@@ -4,8 +4,8 @@ import {
   JOBS, JOB_LIST, JOB_COUNTS, ENEMIES, BOSS, MAX_LV, xpNeed, lvMul, SYLLABLES, CLOTHES, HAIRS,
 } from './data.js'
 
-export const VIEW_W = 640
-export const VIEW_H = 480
+export const VIEW_W = 320
+export const VIEW_H = 240
 export { JOBS, JOB_LIST, ENEMIES, BOSS, MAX_LV, xpNeed, lvMul }
 
 const LEASH = 230 // 操作キャラからこれ以上離れた敵は追わない

@@ -3,21 +3,22 @@ import { P } from './palette.js'
 import { TILE, MW, MH, T, B } from './world.js'
 import { JOBS, VIEW_W, VIEW_H, MAX_LV, xpNeed } from './sim.js'
 import { SPRITE_DATA, colorTable, W as SW, H as SH } from './sprites.js'
+import { ENEMY_DATA, ENEMY_SIZE, enemyTable } from './enemysprites.js'
 
 export const W = VIEW_W
 export const H = VIEW_H
 
 // 画面のボタン（fb 座標）
-export const PREV_BTN = { x: 10, y: H - 48, w: 36, h: 36 }
-export const NEXT_BTN = { x: 52, y: H - 48, w: 36, h: 36 }
-export const PAUSE_BTN = { x: W - 148, y: 10, w: 30, h: 30 }
-export const MINI = { x: W - 108, y: 10, w: 98, h: 74 }
-export const NEW_BTN = { x: W / 2 - 110, y: 330, w: 220, h: 40 }
-export const CONT_BTN = { x: W / 2 - 110, y: 380, w: 220, h: 40 }
+export const PREV_BTN = { x: 4, y: H - 26, w: 22, h: 22 }
+export const NEXT_BTN = { x: 30, y: H - 26, w: 22, h: 22 }
+export const PAUSE_BTN = { x: W - 94, y: 4, w: 20, h: 20 }
+export const MINI = { x: W - 70, y: 4, w: 66, h: 50 }
+export const NEW_BTN = { x: W / 2 - 60, y: 148, w: 120, h: 22 }
+export const CONT_BTN = { x: W / 2 - 60, y: 176, w: 120, h: 22 }
 export const MENU_BTNS = [
-  { id: 'resume', label: 'RESUME', x: W / 2 - 110, y: 190, w: 220, h: 40 },
-  { id: 'sound', label: 'SOUND', x: W / 2 - 110, y: 240, w: 220, h: 40 },
-  { id: 'title', label: 'TITLE', x: W / 2 - 110, y: 290, w: 220, h: 40 },
+  { id: 'resume', label: 'RESUME', x: W / 2 - 60, y: 84, w: 120, h: 22 },
+  { id: 'sound', label: 'SOUND', x: W / 2 - 60, y: 112, w: 120, h: 22 },
+  { id: 'title', label: 'TITLE', x: W / 2 - 60, y: 140, w: 120, h: 22 },
 ]
 
 const c = (name) => P[name]
@@ -308,134 +309,54 @@ export function createRenderer(fb) {
     }
   }
 
-  // --- 敵 ---
-  function drawBlob(e, fx, fy, col) {
-    const sq = Math.floor(e.anim * 4) & 1
-    const rows = sq ? [3, 5, 6, 6, 6, 6, 5] : [3, 5, 6, 6, 6, 6]
-    rect(fx - 6, fy - 1, 13, 2, c('gy1'))
-    rows.forEach((hw, i) => {
-      const y = fy - rows.length + i - 1
-      rect(fx - hw, y, hw * 2 + 1, 1, i === rows.length - 1 ? col(1) : col(0))
-      if (i > 0 && i < 4) px(fx - hw + 1, y, col(2))
-    })
-    const s = e.face >= 0 ? 1 : 0
-    const ey = fy - rows.length + 2
-    px(fx - 2 + s, ey, c('ink')); px(fx + 1 + s, ey, c('ink'))
-    px(fx - 2 + s, ey - 1, c('white'))
-    return 11
-  }
-  function drawBat(e, fx, fy, col) {
-    const fl = Math.floor(e.anim * 10) & 1
-    const by = fy - 10 + (fl ? 0 : 1)
-    const big = e.def.big ? 3 : 0
-    rect(fx - 4, fy - 1, 9, 1, c('gy1'))
-    rect(fx - 2 - (big ? 1 : 0), by, 5 + (big ? 2 : 0), 5 + (big ? 1 : 0), col(0))
-    rect(fx - 2, by - 1, 1, 1, col(0)); rect(fx + 2, by - 1, 1, 1, col(0))
-    const wy = fl ? by - 2 : by + 1
-    rect(fx - 8 - big, wy, 6 + big, 2, col(1)); rect(fx + 3, wy, 6 + big, 2, col(1))
-    rect(fx - 6 - big, wy + (fl ? 2 : 2), 4 + big, 1, col(1)); rect(fx + 3, wy + 2, 4 + big, 1, col(1))
-    px(fx - 1, by + 1, c('rd3')); px(fx + 1, by + 1, c('rd3'))
-    return 17
-  }
-  function drawHumanE(e, fx, fy, col) {
-    const D = e.def
-    const s = e.face >= 0 ? 1 : -1
-    const walkb = Math.floor(e.anim * 6) & 1
-    const knight = e.kind === 'knight'
-    rect(fx - 4, fy - 1, 9, 2, c('gy1'))
-    rect(fx - 3, fy - 3, 2, 3 - walkb, c('br1')); rect(fx + 1, fy - 3, 2, 2 + walkb, c('br1'))
-    rect(fx - 4, fy - 9, 8, 6, col(0))
-    if (e.kind === 'mummy') for (let y = fy - 9; y < fy - 3; y += 2) rect(fx - 4, y, 8, 1, col(2))
-    rect(fx - 3, fy - 14, 6, 5, knight ? col(2) : col(1))
-    if (knight) { rect(fx - 3, fy - 15, 6, 2, col(1)); px(fx, fy - 17, c('rd3')); px(fx, fy - 16, c('rd3')); rect(fx - 1 + s, fy - 12, 3, 1, c('ink')) }
-    else if (e.kind === 'mummy') { for (let y = fy - 14; y < fy - 9; y += 2) rect(fx - 3, y, 6, 1, col(0)); px(fx - 1 + s, fy - 12, c('rd3')); px(fx + 1 + s, fy - 12, c('rd3')) }
-    else { rect(fx - 4, fy - 15, 8, 3, col(2)); px(fx - 1 + s, fy - 11, c('ink')); px(fx + 1 + s, fy - 11, c('ink')) }
-    px(fx - 5, fy - 8, col(1)); px(fx + 4, fy - 8, col(1))
-    const wx = (dx) => fx + s * dx
-    if (D.weapon === 'bow') { for (let j = 0; j < 7; j++) px(wx(6), fy - 14 + j, c('br3')); px(wx(5), fy - 14, c('br3')); px(wx(5), fy - 8, c('br3')); for (let j = 0; j < 5; j++) px(wx(4), fy - 13 + j, c('gy5')) }
-    else if (D.weapon === 'staff') { for (let j = 0; j < 12; j++) px(wx(6), fy - 16 + j, c('br3')); rect(wx(6) - 1, fy - 19, 3, 3, col(2)); px(wx(6), fy - 18, c('white')) }
-    else if (D.weapon === 'sword') { for (let j = 0; j < 8; j++) px(wx(6), fy - 17 + j, c('gy6')); px(wx(5), fy - 9, c('ye1')); px(wx(7), fy - 9, c('ye1')); rect(fx - s * 8 - (s > 0 ? 0 : -3), fy - 11, 4, 6, c('gy4')); px(fx - s * 7 + (s > 0 ? 0 : 0), fy - 9, c('rd3')) }
-    return knight ? 18 : 19
-  }
-  function drawBeast(e, fx, fy, col) {
-    const s = e.face >= 0 ? 1 : -1
-    const run = Math.floor(e.anim * 8) & 1
-    rect(fx - 7, fy - 1, 15, 2, c('gy1'))
-    rect(fx - 6, fy - 3, 2, 3 - run, col(1)); rect(fx - 2, fy - 3, 2, 2 + run, col(1)); rect(fx + 1, fy - 3, 2, 3 - run, col(1)); rect(fx + 5, fy - 3, 2, 2 + run, col(1))
-    rect(fx - 7, fy - 9, 14, 6, col(0))
-    rect(fx - 7, fy - 9, 14, 1, col(2))
-    // 頭
-    const hx = s > 0 ? fx + 5 : fx - 10
-    rect(hx, fy - 11, 6, 5, col(0))
-    px(hx + (s > 0 ? 4 : 1), fy - 10, c('ink'))
-    if (e.kind === 'wolf' || e.kind === 'snowwolf') { px(hx + 1, fy - 12, col(1)); px(hx + 4, fy - 12, col(1)); px(fx - s * 8, fy - 8, col(1)); px(fx - s * 9, fy - 9, col(1)) }
-    else if (e.kind === 'boar') { px(hx + (s > 0 ? 6 : -1), fy - 8, c('white')); px(hx + (s > 0 ? 6 : -1), fy - 9, c('white')); px(fx - s * 8, fy - 8, col(1)) }
-    else if (e.kind === 'scorpion') { for (let j = 0; j < 6; j++) px(fx - s * (6 + (j > 3 ? 5 - j : j)) , fy - 9 - j, col(0)); px(fx - s * 6, fy - 15, c('rd3')); px(hx + (s > 0 ? 6 : -1), fy - 8, col(2)); px(hx + (s > 0 ? 7 : -2), fy - 9, col(2)) }
-    return 15
-  }
-  function drawHeavy(e, fx, fy, col) {
-    const s = e.face >= 0 ? 1 : -1
-    const walkb = Math.floor(e.anim * 4) & 1
-    rect(fx - 9, fy - 1, 19, 3, c('gy1'))
-    rect(fx - 6, fy - 6, 5, 6 - walkb, col(1)); rect(fx + 2, fy - 6, 5, 5 + walkb, col(1))
-    rect(fx - 8, fy - 17, 16, 11, col(0))
-    rect(fx - 8, fy - 17, 16, 2, col(2))
-    rect(fx - 11, fy - 16, 4, 10, col(0)); rect(fx + 8, fy - 16, 4, 10, col(0))
-    rect(fx - 11, fy - 7, 4, 3, col(1)); rect(fx + 8, fy - 7, 4, 3, col(1))
-    rect(fx - 4, fy - 23, 8, 7, col(e.kind === 'yeti' ? 2 : 0))
-    px(fx - 2 + s, fy - 20, c('ink')); px(fx + 1 + s, fy - 20, c('ink'))
-    if (e.kind === 'yeti') { rect(fx - 4, fy - 23, 8, 2, c('white')); rect(fx - 2, fy - 18, 4, 1, c('rd3')); rect(fx - 6, fy - 13, 2, 1, c('white')) }
-    else if (e.kind === 'golem') { px(fx - 5, fy - 14, c('or2')); px(fx + 3, fy - 12, c('or2')); px(fx, fy - 10, c('ye2')); px(fx - 2, fy - 20, c('ye2')); px(fx + 1, fy - 20, c('ye2')); rect(fx - 6, fy - 9, 3, 1, c('or1')) }
-    else if (e.kind === 'treant') { rect(fx - 7, fy - 25, 14, 5, c('gr3')); rect(fx - 5, fy - 27, 10, 3, c('gr4')); px(fx - 6, fy - 12, c('br1')); px(fx + 5, fy - 9, c('br1')); px(fx, fy - 14, c('br1')) }
-    return 28
-  }
-  function drawBossSprite(b, fx, fy, t) {
-    const col = (n) => (b.flash > 0 ? c('white') : c(n))
-    const stun = b.pstate === 'stun'
-    const rage = b.hp < b.maxhp * 0.33
-    const bob = Math.round(Math.sin(t * 3) * 1)
-    rect(fx - 26, fy - 2, 53, 5, c('gy1'))
-    // 足
-    rect(fx - 14, fy - 14, 10, 14, col('pu0')); rect(fx + 5, fy - 14, 10, 14, col('pu0'))
-    rect(fx - 16, fy - 3, 13, 3, col('ink')); rect(fx + 4, fy - 3, 13, 3, col('ink'))
-    // マント
-    rect(fx - 24, fy - 42 + bob, 49, 30, col('rd1'))
-    rect(fx - 26, fy - 36 + bob, 4, 26, col('rd0')); rect(fx + 23, fy - 36 + bob, 4, 26, col('rd0'))
-    for (let i = 0; i < 6; i++) rect(fx - 24 + i * 9, fy - 14 + bob, 6, 3, col('rd1'))
-    // 胴
-    rect(fx - 14, fy - 44 + bob, 29, 26, col('pu1'))
-    rect(fx - 14, fy - 44 + bob, 29, 3, col('pu2'))
-    rect(fx - 4, fy - 36 + bob, 9, 9, col(rage ? 'or2' : 'rd2')); rect(fx - 2, fy - 34 + bob, 5, 5, col('ye2'))
-    // 腕と爪
-    rect(fx - 24, fy - 42 + bob, 8, 18, col('pu1')); rect(fx + 17, fy - 42 + bob, 8, 18, col('pu1'))
-    for (let i = 0; i < 3; i++) { rect(fx - 24 + i * 3, fy - 24 + bob, 2, 5, col('gy6')); rect(fx + 17 + i * 3, fy - 24 + bob, 2, 5, col('gy6')) }
-    // 頭と角
-    rect(fx - 9, fy - 58 + bob, 19, 15, col('pu2'))
-    rect(fx - 9, fy - 58 + bob, 19, 3, col('pu3'))
-    for (let i = 0; i < 9; i++) { px(fx - 10 - (i >> 1), fy - 59 + bob - i, col('gy6')); px(fx + 10 + (i >> 1), fy - 59 + bob - i, col('gy6')) }
-    rect(fx - 11, fy - 60 + bob, 3, 3, col('gy5')); rect(fx + 9, fy - 60 + bob, 3, 3, col('gy5'))
-    const eye = stun ? 'ye2' : rage ? 'ye3' : 'rd3'
-    rect(fx - 6, fy - 52 + bob, 4, 3, c(eye)); rect(fx + 3, fy - 52 + bob, 4, 3, c(eye))
-    rect(fx - 5, fy - 46 + bob, 11, 2, c('ink')); for (let i = 0; i < 5; i++) px(fx - 5 + i * 3, fy - 46 + bob, c('white'))
-    // 冠
-    for (let i = 0; i < 5; i++) rect(fx - 8 + i * 4, fy - 62 + bob - (i % 2 ? 0 : 2), 3, 4, col('ye1'))
-    if (stun) for (let i = 0; i < 3; i++) { const a = t * 5 + (i * 6.28) / 3; px(Math.round(fx + Math.cos(a) * 16), Math.round(fy - 66 + Math.sin(a) * 3), c('ye3')) }
-  }
+  // --- 敵・ボス：ドット絵（enemysprites.js）---
   function drawEnemy(e, fx, fy, t) {
     const D = e.def
-    if (e.kind === 'boss') { drawBossSprite(e, fx, fy, t); return }
-    const col = (i) => (e.flash > 0 ? c('white') : c(D.col[i]))
-    let top
-    switch (D.shape) {
-      case 'blob': top = drawBlob(e, fx, fy, col); break
-      case 'bat': top = drawBat(e, fx, fy, col); break
-      case 'human': top = drawHumanE(e, fx, fy, col); break
-      case 'beast': top = drawBeast(e, fx, fy, col); break
-      case 'heavy': top = drawHeavy(e, fx, fy, col); break
-      default: top = 12
+    const kind = e.kind
+    const data = ENEMY_DATA[kind]
+    const size = ENEMY_SIZE[kind]
+    if (!data) return
+    const isBoss = kind === 'boss'
+    const flyer = D.atk === 'flyer'
+    // 歩く・はばたく・はずむ
+    let frame = 'a'
+    if (D.shape === 'blob') frame = Math.floor(e.anim * 4) & 1 ? 'b' : 'a'
+    else if (flyer) frame = Math.floor(e.anim * 10) & 1 ? 'b' : 'a'
+    else if (isBoss) frame = Math.floor(e.anim * 2) & 1 ? 'b' : 'a'
+    else if (e.state === 'chase' || e.state === 'act') frame = Math.floor(e.anim * 8) & 1 ? 'b' : 'a'
+    const lift = flyer ? 7 + Math.round(Math.sin(e.anim * 4) * 1.5) : 0
+    const oy = fy - size.h - lift
+    const ox = fx - (size.w >> 1)
+    const right = e.face >= 0
+    // 影
+    const sw = Math.max(7, Math.round(size.w * 0.7))
+    rect(fx - (sw >> 1), fy - 2, sw, 2, c('gy1'))
+    rect(fx - (sw >> 1) + 1, fy - 3, sw - 2, 1, c('gy1'))
+    const tbl = enemyTable(kind, P, isBoss ? { rage: e.hp < e.maxhp * 0.33, stun: e.pstate === 'stun' } : {})
+    const arr = data[frame]
+    const white = c('white')
+    const flash = e.flash > 0
+    for (let y = 0; y < size.h; y++) {
+      const yy = oy + y
+      if (yy < 0 || yy >= H) continue
+      for (let x = 0; x < size.w; x++) {
+        const ch = arr[y * size.w + (right ? x : size.w - 1 - x)]
+        if (ch === 46) continue
+        let col = tbl[ch]
+        if (col === 255) continue
+        // 命中の点滅：小さい敵は真っ白、ボスと大きな敵は市松（大勢に撃たれ続けても、絵が見えるように）
+        if (flash && ch !== 111 && (size.w < 24 || ((x + y) & 1))) col = white
+        const xx = ox + x
+        if (xx >= 0 && xx < W) fb[yy * W + xx] = col
+      }
+    }
+    const top = size.h + lift
+    if (isBoss) {
+      if (e.pstate === 'stun') for (let i = 0; i < 3; i++) { const a = t * 5 + (i * 6.28) / 3; px(Math.round(fx + Math.cos(a) * 12), Math.round(oy - 4 + Math.sin(a) * 2), c('ye3')) }
+      return
     }
     if (e.hp < e.maxhp) {
-      const w = D.shape === 'heavy' ? 16 : 10
+      const w = Math.min(20, Math.max(10, size.w))
       const bw = Math.max(1, Math.round((w * e.hp) / e.maxhp))
       const by = fy - top - 3
       rect(fx - (w >> 1), by, w, 2, c('black'))
@@ -450,14 +371,14 @@ export function createRenderer(fb) {
     const f = cg.flash > 0
     const bar = f ? c('white') : c('br4')
     const dark = f ? c('white') : c('br2')
-    const top = 26
-    rect(fx - 9, fy - top, 18, 2, c('br1'))
-    rect(fx - 9, fy - top + 2, 18, 1, dark)
-    for (let x = -8; x <= 8; x += 3) rect(fx + x, fy - top + 2, 1, top - 2, bar)
-    rect(fx - 9, fy - top + 2, 1, top - 2, dark)
-    rect(fx + 8, fy - top + 2, 1, top - 2, dark)
-    rect(fx - 9, fy - 2, 18, 2, c('br1'))
-    px(fx, fy - 12, c('ye1')); px(fx + 1, fy - 12, c('ye1'))
+    const top = SH + 3
+    rect(fx - 8, fy - top, 16, 2, c('br1'))
+    rect(fx - 8, fy - top + 2, 16, 1, dark)
+    for (let x = -7; x <= 7; x += 3) rect(fx + x, fy - top + 2, 1, top - 2, bar)
+    rect(fx - 8, fy - top + 2, 1, top - 2, dark)
+    rect(fx + 7, fy - top + 2, 1, top - 2, dark)
+    rect(fx - 8, fy - 2, 16, 2, c('br1'))
+    px(fx, fy - 9, c('ye1')); px(fx + 1, fy - 9, c('ye1'))
     if (cg.hp < cg.maxhp) {
       const bw = Math.max(1, Math.round((14 * cg.hp) / cg.maxhp))
       rect(fx - 7, fy - top - 4, 14, 2, c('black'))
@@ -574,16 +495,16 @@ export function createRenderer(fb) {
     }
   }
 
-  // --- ミニマップ ---
+  // --- ミニマップ（3 タイルを 1 ドットに）---
   let mini = null
   function buildMini(S) {
-    const w = 96, h = 72
+    const w = 64, h = 48
     mini = { w, h, base: new Uint8Array(w * h) }
     const ground = [c('gr3'), c('gr2'), c('sa2'), c('gy6'), c('gy2'), c('gy3')]
     const solid = [c('gr1'), c('gr0'), c('sa1'), c('gy4'), c('ink'), c('gy1')]
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        const tx = x * 2, ty = y * 2
+        const tx = x * 3 + 1, ty = y * 3 + 1
         const t0 = S.world.tiles[ty * MW + tx], b0 = S.world.biome[ty * MW + tx]
         let col = ground[b0]
         if (t0 === T.TREE || t0 === T.ROCK || t0 === T.WALL) col = solid[b0]
@@ -599,53 +520,52 @@ export function createRenderer(fb) {
     rect(MINI.x, MINI.y, MINI.w, MINI.h, c('black'))
     for (let y = 0; y < mini.h; y++) {
       for (let x = 0; x < mini.w; x++) {
-        const k = y * 2 * MW + x * 2
-        const seen = S.seen[k] | S.seen[k + 1] | S.seen[k + MW] | S.seen[k + MW + 1]
+        const k = (y * 3 + 1) * MW + x * 3 + 1
+        const seen = S.seen[k] | S.seen[k - 1] | S.seen[k + 1] | S.seen[k - MW] | S.seen[k + MW]
         px(ox + x, oy + y, seen ? mini.base[y * mini.w + x] : c('ink'))
       }
     }
     const seenAt = (tx, ty) => S.seen[ty * MW + tx]
     for (const cg of S.cages) {
       if (cg.opened || !seenAt(cg.tx, cg.ty)) continue
-      rect(ox + (cg.tx >> 1) - 1, oy + (cg.ty >> 1) - 1, 2, 2, c('ye2'))
+      rect(ox + Math.floor(cg.tx / 3) - 1, oy + Math.floor(cg.ty / 3) - 1, 2, 2, c('ye2'))
     }
     const bt = S.boss
     if (bt && bt.hp > 0) {
       const bx = Math.floor(bt.x / TILE), by = Math.floor(bt.y / TILE)
-      if (seenAt(bx, by) || Math.floor(t * 2) & 1) rect(ox + (bx >> 1) - 1, oy + (by >> 1) - 1, 3, 3, c('mag'))
+      if (seenAt(bx, by) || Math.floor(t * 2) & 1) rect(ox + Math.floor(bx / 3) - 1, oy + Math.floor(by / 3) - 1, 3, 3, c('mag'))
     }
     // いまの画面の範囲
-    const vx0 = Math.floor(S.cam.x / TILE / 2), vy0 = Math.floor(S.cam.y / TILE / 2)
-    const vw = Math.round(VIEW_W / TILE / 2), vh = Math.round(VIEW_H / TILE / 2)
-    for (let i = 0; i < vw; i++) { px(ox + vx0 + i, oy + vy0, c('white')); px(ox + vx0 + i, oy + vy0 + vh, c('white')) }
+    const vx0 = Math.floor(S.cam.x / TILE / 3), vy0 = Math.floor(S.cam.y / TILE / 3)
+    const vw = Math.max(2, Math.round(VIEW_W / TILE / 3)), vh = Math.max(2, Math.round(VIEW_H / TILE / 3))
+    for (let i = 0; i <= vw; i++) { px(ox + vx0 + i, oy + vy0, c('white')); px(ox + vx0 + i, oy + vy0 + vh, c('white')) }
     for (let j = 0; j <= vh; j++) { px(ox + vx0, oy + vy0 + j, c('white')); px(ox + vx0 + vw, oy + vy0 + j, c('white')) }
-    // 仲間の群れ
-    for (const a of S.allies) if (a !== S.leader) px(ox + (Math.floor(a.x / TILE) >> 1), oy + (Math.floor(a.y / TILE) >> 1), c('bl5'))
-    const lx = ox + (Math.floor(S.leader.x / TILE) >> 1), ly = oy + (Math.floor(S.leader.y / TILE) >> 1)
+    for (const a of S.allies) if (a !== S.leader) px(ox + Math.floor(a.x / TILE / 3), oy + Math.floor(a.y / TILE / 3), c('bl5'))
+    const lx = ox + Math.floor(S.leader.x / TILE / 3), ly = oy + Math.floor(S.leader.y / TILE / 3)
     if (Math.floor(t * 4) & 1) rect(lx - 1, ly - 1, 3, 3, c('white'))
   }
 
   // --- HUD ---
-  function drawButton(b, label, hot, sc = 3) {
+  function drawButton(b, label, hot, sc = 2) {
     rect(b.x, b.y, b.w, b.h, c('black'))
     rect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, hot ? c('gy3') : c('gy1'))
-    rect(b.x + 2, b.y + 2, b.w - 4, 1, c('gy3'))
+    rect(b.x + 1, b.y + 1, b.w - 2, 1, c('gy3'))
     text(label, b.x + b.w / 2 - textW(label, sc) / 2, b.y + b.h / 2 - (sc * 5) / 2, c('gy6'), sc)
   }
   function drawHud(S, ui, t) {
     const L = S.leader
-    shadowText(`RESCUED ${S.rescued}/${S.total}`, 10, 10, c('ye3'), 2)
-    shadowText(`ALLIES ${S.allies.length}`, 10, 28, c('white'), 2)
+    shadowText(`RESCUED ${S.rescued}/${S.total}`, 4, 4, c('ye3'), 1)
+    shadowText(`ALLIES ${S.allies.length}`, 4, 12, c('white'), 1)
     const J = JOBS[L.job]
-    const pw = 190, px0 = (W - pw) / 2, py0 = H - 50
-    rect(px0, py0, pw, 42, c('black'))
-    rect(px0 + 1, py0 + 1, pw - 2, 40, c('gy1'))
-    text(`${L.name} ${J.label}`, px0 + 8, py0 + 7, c('white'), 2)
-    text(`LV${L.lvl}`, px0 + pw - 8 - textW(`LV${L.lvl}`, 2), py0 + 7, c('ye2'), 2)
-    rect(px0 + 8, py0 + 22, pw - 16, 7, c('black'))
-    rect(px0 + 9, py0 + 23, Math.max(0, Math.round(((pw - 18) * L.hp) / L.maxhp)), 5, L.hp < L.maxhp * 0.35 ? c('rd3') : c('lime'))
-    rect(px0 + 8, py0 + 32, pw - 16, 3, c('black'))
-    if (L.lvl < MAX_LV) rect(px0 + 9, py0 + 33, Math.round(((pw - 18) * L.xp) / xpNeed(L.lvl)), 1, c('bl4'))
+    const pw = 116, px0 = Math.round((W - pw) / 2), py0 = H - 29
+    rect(px0, py0, pw, 25, c('black'))
+    rect(px0 + 1, py0 + 1, pw - 2, 23, c('gy1'))
+    text(`${L.name} ${J.label}`, px0 + 5, py0 + 4, c('white'), 1)
+    text(`LV${L.lvl}`, px0 + pw - 5 - textW(`LV${L.lvl}`, 1), py0 + 4, c('ye2'), 1)
+    rect(px0 + 5, py0 + 12, pw - 10, 5, c('black'))
+    rect(px0 + 6, py0 + 13, Math.max(0, Math.round(((pw - 12) * L.hp) / L.maxhp)), 3, L.hp < L.maxhp * 0.35 ? c('rd3') : c('lime'))
+    rect(px0 + 5, py0 + 18, pw - 10, 3, c('black'))
+    if (L.lvl < MAX_LV) rect(px0 + 6, py0 + 19, Math.round(((pw - 12) * L.xp) / xpNeed(L.lvl)), 1, c('bl4'))
     drawButton(PREV_BTN, '<')
     drawButton(NEXT_BTN, '>')
     drawButton(PAUSE_BTN, '=', false, 2)
@@ -653,21 +573,21 @@ export function createRenderer(fb) {
     // ボスの体力
     const b = S.boss
     if (b && b.hp > 0 && b.aggro) {
-      const bw = 300, bx = (W - bw) / 2 - 20, by = 8
-      rect(bx - 2, by - 2, bw + 4, 14, c('black'))
-      rect(bx, by, bw, 10, c('rd0'))
-      rect(bx, by, Math.max(0, Math.round((bw * b.hp) / b.maxhp)), 10, b.hp < b.maxhp * 0.33 ? c('or2') : c('rd3'))
-      shadowText('DEMON KING', bx + bw / 2 - textW('DEMON KING', 2) / 2, by + 14, c('white'), 2)
+      const bw = 150, bx = Math.round((W - bw) / 2) - 24, by = 4
+      rect(bx - 1, by - 1, bw + 2, 8, c('black'))
+      rect(bx, by, bw, 6, c('rd0'))
+      rect(bx, by, Math.max(0, Math.round((bw * b.hp) / b.maxhp)), 6, b.hp < b.maxhp * 0.33 ? c('or2') : c('rd3'))
+      shadowText('DEMON KING', bx + bw / 2 - textW('DEMON KING', 1) / 2, by + 9, c('white'), 1)
     }
     if (ui.stick) {
-      ringPx(ui.stick.ax, ui.stick.ay, 26, c('gy5'), 1)
-      disc(ui.stick.x, ui.stick.y, 6, c('gy6'))
+      ringPx(ui.stick.ax, ui.stick.ay, 13, c('gy5'), 1)
+      disc(ui.stick.x, ui.stick.y, 3, c('gy6'))
     }
     if (S.banner) {
-      const bx = (W - 300) / 2
-      rect(bx, 90, 300, 34, c('black'))
-      rect(bx + 2, 92, 296, 30, c('gy1'))
-      text(S.banner, W / 2 - textW(S.banner, 3) / 2, 100, c('ye3'), 3)
+      const bw = Math.max(110, textW(S.banner, 2) + 16), bx = Math.round((W - bw) / 2)
+      rect(bx, 44, bw, 18, c('black'))
+      rect(bx + 1, 45, bw - 2, 16, c('gy1'))
+      text(S.banner, W / 2 - textW(S.banner, 2) / 2, 49, c('ye3'), 2)
     }
   }
 
@@ -678,47 +598,47 @@ export function createRenderer(fb) {
   function drawTitle(ui, t) {
     overlayDark()
     const title = 'GUNZO'
-    const sc = 12
+    const sc = 6
     const x = W / 2 - textW(title, sc) / 2
-    text(title, x + 4, 80 + 4, c('black'), sc)
-    text(title, x, 80, c('ye2'), sc)
+    text(title, x + 2, 32 + 2, c('black'), sc)
+    text(title, x, 32, c('ye2'), sc)
     const sub = '99 FRIENDS - 100 HEROES'
-    text(sub, W / 2 - textW(sub, 2) / 2, 170, c('white'), 2)
+    text(sub, W / 2 - textW(sub, 1) / 2, 84, c('white'), 1)
     const lines = ['DRAG OR WASD: MOVE', 'TAP A FRIEND: SWITCH', 'FREE THEM ALL. DEFEAT THE DEMON KING.']
-    lines.forEach((l, i) => text(l, W / 2 - textW(l, 2) / 2, 220 + i * 22, c('gy5'), 2))
+    lines.forEach((l, i) => text(l, W / 2 - textW(l, 1) / 2, 104 + i * 10, c('gy5'), 1))
     drawButton(NEW_BTN, 'NEW GAME', ui.hot === 'new')
     if (ui.hasSave) drawButton(CONT_BTN, 'CONTINUE', ui.hot === 'cont')
-    if (ui.hasSave) text(ui.saveInfo || '', W / 2 - textW(ui.saveInfo || '', 1) / 2, 428, c('gy4'), 1)
+    if (ui.hasSave) text(ui.saveInfo || '', W / 2 - textW(ui.saveInfo || '', 1) / 2, 206, c('gy4'), 1)
   }
   function drawPause(ui) {
     overlayDark()
-    text('PAUSE', W / 2 - textW('PAUSE', 5) / 2, 120, c('white'), 5)
+    text('PAUSE', W / 2 - textW('PAUSE', 3) / 2, 50, c('white'), 3)
     for (const b of MENU_BTNS) drawButton(b, b.id === 'sound' ? (ui.sound ? 'SOUND ON' : 'SOUND OFF') : b.label, false)
-    const tips = ['DRAG OR WASD: MOVE', 'TAP A FRIEND: SWITCH (Q E: PREV NEXT)', 'RED AREAS: DANGER, STEP OUT!']
-    tips.forEach((l, i) => text(l, W / 2 - textW(l, 2) / 2, 360 + i * 22, c('gy5'), 2))
+    const tips = ['DRAG OR WASD: MOVE', 'TAP A FRIEND: SWITCH (Q E)', 'RED AREAS: DANGER, STEP OUT!']
+    tips.forEach((l, i) => text(l, W / 2 - textW(l, 1) / 2, 176 + i * 10, c('gy5'), 1))
   }
   function drawOver(S, ui, t) {
     overlayDark()
     const s = 'ALL FALLEN'
-    text(s, W / 2 - textW(s, 6) / 2, 150, c('rd3'), 6)
+    text(s, W / 2 - textW(s, 3) / 2, 70, c('rd3'), 3)
     const r = `RESCUED ${S.rescued}/${S.total}  LOST ${S.lost}  KILLS ${S.kills}`
-    text(r, W / 2 - textW(r, 2) / 2, 240, c('white'), 2)
+    text(r, W / 2 - textW(r, 1) / 2, 108, c('white'), 1)
     const m = ui.hasSave ? 'TAP TO CONTINUE FROM SAVE' : 'TAP TO RETRY'
-    if (Math.floor(t * 2) % 2 === 0) text(m, W / 2 - textW(m, 3) / 2, 320, c('white'), 3)
+    if (Math.floor(t * 2) % 2 === 0) text(m, W / 2 - textW(m, 1) / 2, 140, c('white'), 1)
   }
   function drawWin(S, t) {
     if (S.winT < 2.5) return
     overlayDark()
     const s = 'VICTORY'
-    text(s, W / 2 - textW(s, 10) / 2 + 3, 63, c('black'), 10)
-    text(s, W / 2 - textW(s, 10) / 2, 60, c('ye2'), 10)
+    text(s, W / 2 - textW(s, 5) / 2 + 1, 25, c('black'), 5)
+    text(s, W / 2 - textW(s, 5) / 2, 24, c('ye2'), 5)
     const solo = S.rescued === 0
     const perfect = S.rescued === S.total && S.lost === 0
     const title = perfect ? 'PERFECT - NO ONE LOST' : solo ? 'SOLO CLEAR' : S.rescued === S.total ? 'ALL RESCUED' : 'CLEARED'
-    text(title, W / 2 - textW(title, 3) / 2, 160, perfect || solo ? c('ye3') : c('white'), 3)
+    text(title, W / 2 - textW(title, 2) / 2, 66, perfect || solo ? c('ye3') : c('white'), 2)
     const rows = [`RESCUED ${S.rescued}/${S.total}`, `LOST ${S.lost}`, `ALIVE ${S.allies.length}`, `TIME ${fmtTime(S.t)}`, `KILLS ${S.kills}`]
-    rows.forEach((l, i) => text(l, W / 2 - textW(l, 2) / 2, 220 + i * 24, c('white'), 2))
-    if (Math.floor(t * 2) % 2 === 0) text('TAP TO RETURN TO TITLE', W / 2 - textW('TAP TO RETURN TO TITLE', 2) / 2, 380, c('gy5'), 2)
+    rows.forEach((l, i) => text(l, W / 2 - textW(l, 1) / 2, 100 + i * 12, c('white'), 1))
+    if (Math.floor(t * 2) % 2 === 0) text('TAP TO RETURN TO TITLE', W / 2 - textW('TAP TO RETURN TO TITLE', 1) / 2, 176, c('gy5'), 1)
   }
 
   // --- 1フレーム ---
@@ -742,7 +662,7 @@ export function createRenderer(fb) {
         drawPerson(o, fx, fy)
         if (o === L) {
           const bob = Math.round(Math.sin(t * 6) * 1.5)
-          const ay = fy - 35 - bob
+          const ay = fy - SH - 11 - bob
           for (let i = 0; i < 4; i++) rect(fx - 3 + i, ay + i, 7 - i * 2, 1, c('ye2'))
           px(fx, ay + 4, c('ye2'))
         }

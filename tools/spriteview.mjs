@@ -13,11 +13,11 @@ function render(rows, fb, ox, oy, stride, ex = {}) {
   rows.forEach((r, y) => [...r].forEach((ch, x) => { if (ch !== '.' && ch !== '_' && C2[ch]) fb[(oy + y) * stride + ox + x] = P[C2[ch]] }))
 }
 const frames = Object.values(SPRITES).flatMap((s) => [s.a, s.b])
-const cols = 8, scale = 6
+const cols = 8, scale = 8
 const stride = cols * 18, rowsN = Math.ceil(frames.length / cols)
-const fb = new Uint8Array(stride * rowsN * 26).fill(P.gr3)
-frames.forEach((f, i) => { const job = Object.keys(SPRITES)[i >> 1]; const ex = JOB_ART[job].extra ?? {}; render(f, fb, (i % cols) * 18 + 1, Math.floor(i / cols) * 26 + 1, stride, ex) })
-writePng(process.argv[2] || '/tmp/sprites.png', fb, stride, rowsN * 26, scale)
+const fb = new Uint8Array(stride * rowsN * 18).fill(P.gr3)
+frames.forEach((f, i) => { const job = Object.keys(SPRITES)[i >> 1]; const ex = JOB_ART[job].extra ?? {}; render(f, fb, (i % cols) * 18 + 1, Math.floor(i / cols) * 18 + 1, stride, ex) })
+writePng(process.argv[2] || '/tmp/sprites.png', fb, stride, rowsN * 18, scale)
 for (const [k, rows] of Object.entries(BASE)) {
   if (rows.length !== H) console.log('rows', k, rows.length)
   rows.forEach((r, i) => { if (r.length !== W) console.log('bad length', k, i, r.length, JSON.stringify(r)) })
