@@ -1,6 +1,6 @@
 import { PAL_HEX } from './palette.js'
 import { createSim } from './sim.js'
-import { createRenderer, W, H, PREV_BTN, NEXT_BTN, PAUSE_BTN, NEW_BTN, CONT_BTN, MENU_BTNS } from './render.js'
+import { createRenderer, W, H, PREV_BTN, NEXT_BTN, PAUSE_BTN, SWING_BTN, NEW_BTN, CONT_BTN, MENU_BTNS } from './render.js'
 import { audio } from './audio.js'
 
 const PAL32 = new Uint32Array(PAL_HEX.map((h) => {
@@ -25,6 +25,11 @@ function resize() {
 window.addEventListener('resize', resize)
 resize()
 
+// 今は手触りを作っている途中なので、ふだんは試し場で開く（セーブを使わず、開始地点のまわりに敵を並べる）
+// ?game を付けて開くと、本来のゲーム
+const TEST = !new URLSearchParams(location.search).has('game')
+const simOpts = (o = {}) => ({ manual: true, test: TEST, ...o })
+
 // --- セーブ ---
 const SAVE_KEY = 'gunzo-save-v1'
 const SOUND_KEY = 'gunzo-sound'
@@ -34,14 +39,14 @@ const readSave = () => {
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 const ui = { screen: 'title', paused: false, stick: null, hasSave: false, saveInfo: '', sound: localStorage.getItem(SOUND_KEY) !== '0', hot: null }
 function refreshSaveInfo() {
-  const d = readSave()
+  const d = TEST ? null : readSave() // 試し場は、ふだんのセーブに触らない
   ui.hasSave = !!d
   ui.saveInfo = d ? `RESCUED ${d.rescued}/99  ALLIES ${d.allies.length}  LOST ${d.lost}  TIME ${fmtTime(d.t)}` : ''
 }
 refreshSaveInfo()
 audio.setEnabled(ui.sound)
 
-let S = createSim()
+let S = createSim(simOpts())
 let lastSaveT = 0
 function save() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S.serialize())) } catch { /* 容量がなければ諦める */ }
@@ -49,8 +54,8 @@ function save() {
   refreshSaveInfo()
 }
 function newGame() {
-  try { localStorage.removeItem(SAVE_KEY) } catch { /* ignore */ }
-  S = createSim()
+  if (!TEST) try { localStorage.removeItem(SAVE_KEY) } catch { /* ignore */ }
+  S = createSim(simOpts())
   S.banner = 'FREE 99 FRIENDS'
   S.bannerT = 5
   lastSaveT = 0
@@ -62,7 +67,7 @@ function newGame() {
 function continueGame() {
   const d = readSave()
   if (!d) return newGame()
-  S = createSim({ seed: d.seed })
+  S = createSim(simOpts({ seed: d.seed }))
   S.restore(d)
   lastSaveT = S.t
   ui.screen = 'play'
@@ -72,13 +77,14 @@ function continueGame() {
 function toTitle() {
   ui.screen = 'title'
   ui.paused = false
-  S = createSim()
+  S = createSim(simOpts())
   refreshSaveInfo()
   audio.music(null)
 }
 
 // --- 入力 ---
 // ドラッグ：始点からの向きで動く（遠くへ引いたら始点が追いかける）。短いタップ：味方に切り替え
+// 自分で振る職を操作しているときは、右下の振るボタンで振る。キーは Space か Z
 const STICK_MAX = 15
 const DEAD = 3
 const drags = new Map()
@@ -110,10 +116,15 @@ canvas.addEventListener('pointerdown', (e) => {
     return
   }
   if (S.state === 'over') { if (ui.hasSave) continueGame(); else newGame(); return }
-  if (S.state === 'win') { if (S.winT > 2.5) { try { localStorage.removeItem(SAVE_KEY) } catch { /* ignore */ } toTitle() } return }
+  if (S.state === 'win') { if (S.winT > 2.5) { if (!TEST) try { localStorage.removeItem(SAVE_KEY) } catch { /* ignore */ } toTitle() } return }
   if (inRect(p, PAUSE_BTN)) { ui.paused = true; drags.clear(); return }
   if (inRect(p, PREV_BTN)) { S.cycle(-1); drags.set(e.pointerId, { kind: 'btn' }); return }
   if (inRect(p, NEXT_BTN)) { S.cycle(1); drags.set(e.pointerId, { kind: 'btn' }); return }
+  if (S.isManual(S.leader) && Math.hypot(p.x - SWING_BTN.x, p.y - SWING_BTN.y) < SWING_BTN.r + 4) {
+    S.input.swing = true
+    drags.set(e.pointerId, { kind: 'btn' })
+    return
+  }
   drags.set(e.pointerId, { kind: 'drag', ax: p.x, ay: p.y, sx: p.x, sy: p.y, x: p.x, y: p.y, t: performance.now(), moved: 0 })
 })
 canvas.addEventListener('pointermove', (e) => {
@@ -159,6 +170,7 @@ window.addEventListener('keydown', (e) => {
   if (S.state === 'over') { if (k === 'r' || k === ' ' || k === 'enter') { if (ui.hasSave) continueGame(); else newGame() } return }
   if (S.state === 'win') { if (S.winT > 2.5 && (k === ' ' || k === 'enter')) toTitle(); return }
   if (ui.paused) return
+  if (k === ' ' || k === 'z') { S.input.swing = true; e.preventDefault(); return }
   if (k === 'e' || k === 'tab') { S.cycle(1); e.preventDefault() }
   else if (k === 'q') S.cycle(-1)
   keys.add(k)
@@ -209,7 +221,7 @@ function frame(now) {
     readInput()
     S.step(dt)
     events()
-    if (S.state === 'play' && S.t - lastSaveT > 20 && S.canSave()) save()
+    if (!TEST && S.state === 'play' && S.t - lastSaveT > 20 && S.canSave()) save()
   } else if (ui.screen === 'title') {
     S.step(dt) // 背景の世界は止めない（敵が動く）
   }

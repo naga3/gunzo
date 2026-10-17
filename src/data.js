@@ -5,9 +5,10 @@ export const xpNeed = (lv) => 4 + 2.4 * lv
 export const lvMul = (lv) => 1 + 0.1 * (lv - 1)
 
 // 職。kind は攻撃の種類（sim.js の attackWith）。pref はこの距離を保つ。band は操作キャラからの好む距離の帯
+// manual: 操作しているときは自動で攻撃せず、自分で振る（sim.js の swing。いまは剣士だけ）
 export const JOB_LIST = ['sword', 'spear', 'shield', 'bow', 'xbow', 'axe', 'boom', 'mage', 'bomb', 'volt', 'heal']
 export const JOBS = {
-  sword: { label: 'SWORD', hp: 34, speed: 72, atk: 6, range: 20, cd: 0.55, kind: 'melee', pref: 14, band: [26, 64], sight: 150 },
+  sword: { label: 'SWORD', hp: 34, speed: 72, atk: 6, range: 20, cd: 0.55, kind: 'melee', manual: true, pref: 14, band: [26, 64], sight: 150 },
   spear: { label: 'SPEAR', hp: 30, speed: 66, atk: 5, range: 40, cd: 0.8, kind: 'pierce', pref: 32, band: [30, 70], sight: 150 },
   shield: { label: 'SHIELD', hp: 56, speed: 58, atk: 4, range: 18, cd: 0.8, kind: 'melee', taunt: true, pref: 14, band: [16, 44], sight: 130 },
   bow: { label: 'BOW', hp: 20, speed: 70, atk: 4, range: 140, cd: 0.85, kind: 'arrow', pref: 100, band: [70, 120], sight: 170 },
@@ -96,6 +97,17 @@ export const BOSS = {
   rain: { n: 7, r: 24, dmg: 16, wind: 0.95 },
   summon: { kind: 'imp', n: 2, max: 4 },
 }
+
+// 操作キャラが自分で振る剣。r は届く距離、half は扇の半分の角度（ラジアン）、cd は次に振れるまで
+// deflect は弾を弾ける距離、back は弾き返した弾の威力の倍率、stun は予兆を斬って止めたときに動けない時間
+// 当たったときの手応え: stop はヒットストップ（秒。BREAK・とどめは bigStop）、kb はノックバックの初速（重さで割る）
+// wallDmg は壁にぶつかったときのダメージ（剣の何倍か）、wallStun はそのとき動けない時間、shake は画面の揺れ（ドット）
+export const SWING = {
+  r: 24, half: 1.05, cd: 0.3, deflect: 30, back: 2, stun: 0.7, bossStun: 1.0,
+  stop: 0.05, bigStop: 0.09, kb: 190, kbTime: 0.16, wallDmg: 0.5, wallStun: 0.4, shake: 2,
+}
+// ノックバックの重さ（大きいほど動かない）。ボスは動かない
+export const MASS = { blob: 1, bat: 0.7, human: 1.2, beast: 1.4, heavy: 4, big: 3 }
 
 export const SYLLABLES = ['KA', 'RO', 'MI', 'TA', 'NE', 'SU', 'HI', 'YO', 'RA', 'KE', 'MU', 'TO', 'NA', 'SA', 'FU', 'LE', 'SHI', 'KO', 'RI', 'DO']
 export const CLOTHES = ['bl3', 'rd3', 'ye1', 'pu3', 'tl2', 'pk2', 'or2', 'gy6']

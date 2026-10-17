@@ -11,6 +11,8 @@ export const H = VIEW_H
 // 画面のボタン（fb 座標）
 export const PREV_BTN = { x: 4, y: H - 26, w: 22, h: 22 }
 export const NEXT_BTN = { x: 30, y: H - 26, w: 22, h: 22 }
+// 振るボタン（自分で振る職を操作しているときだけ出る）。r は見た目の半径
+export const SWING_BTN = { x: W - 30, y: H - 32, r: 22 }
 export const PAUSE_BTN = { x: W - 94, y: 4, w: 20, h: 20 }
 export const MINI = { x: W - 70, y: 4, w: 66, h: 50 }
 export const NEW_BTN = { x: W / 2 - 60, y: 148, w: 120, h: 22 }
@@ -362,6 +364,7 @@ export function createRenderer(fb) {
       rect(fx - (w >> 1), by, w, 2, c('black'))
       rect(fx - (w >> 1), by, bw, 1, c('rd3'))
     }
+    if (e.state === 'stun') for (let i = 0; i < 2; i++) { const a = t * 6 + i * 3.14; px(Math.round(fx + Math.cos(a) * 6), Math.round(fy - top - 5 + Math.sin(a) * 1.5), c('ye3')) }
     if (e.state === 'wind') px(fx, fy - top - 6, Math.floor(e.windT * 20) & 1 ? c('rd3') : c('ye3')) // 予兆の「!」
   }
 
@@ -391,7 +394,7 @@ export function createRenderer(fb) {
     const a = Math.atan2(p.vy, p.vx)
     switch (p.kind) {
       case 'arrow': case 'enemyArrow': {
-        const col = p.kind === 'enemyArrow' ? c('rd3') : c('gy6')
+        const col = p.kind !== 'enemyArrow' ? c('gy6') : p.deflected ? c('ye3') : c('rd3')
         for (let i = 0; i < 6; i++) px(Math.round(x - Math.cos(a) * i), Math.round(y - Math.sin(a) * i), i === 0 ? c('white') : col)
         break
       }
@@ -416,6 +419,7 @@ export function createRenderer(fb) {
         disc(x, y, 3, c('pu2')); disc(x, y, 2, c('pu3')); px(x, y, c('white')); px(x + 3, y - 3, c('pu4')); px(x - 3, y + 2, c('pu4'))
         break
       case 'fireball':
+        if (p.deflected) { disc(x, y, p.r >= 6 ? 4 : 3, c('bl3')); disc(x, y, 2, c('bl5')); px(x, y, c('white')); break } // 弾き返した弾は青く
         disc(x, y, p.r >= 6 ? 4 : 3, c('or1')); disc(x, y, 2, c('ye2')); px(x, y, c('white'))
         break
     }
@@ -476,6 +480,28 @@ export function createRenderer(fb) {
       const k = f.t / f.life
       if (f.k === 'spark') { px(x, y, c(f.c)); if (k < 0.5) px(x + 1, y, c(f.c)) }
       else if (f.k === 'ring') ringPx(x, y, f.r * (0.4 + 0.6 * k), c(f.c))
+      else if (f.k === 'cut') {
+        // 斬った跡：はじめは太く、すぐ細くなる
+        const dx = Math.cos(f.ang) * f.len, dy = Math.sin(f.ang) * f.len
+        lineThick(Math.round(x - dx), Math.round(y - dy), Math.round(x + dx), Math.round(y + dy), k < 0.5 ? 2 : 1, c('white'))
+      }
+      else if (f.k === 'corpse') {
+        // とどめを刺した敵：点滅しながら飛んでいく
+        const ghost = { kind: f.kind, def: f.def, anim: 0, state: 'idle', face: f.face, hp: 1, maxhp: 1, rad: f.rad, flash: Math.floor(f.t * 30) & 1 ? 1 : 0 }
+        drawEnemy(ghost, x, y + 6, S.t)
+      }
+      else if (f.k === 'slash') {
+        // 剣の振り：扇の端から端へ、白い弧が走る
+        const a0 = f.ang - f.half, span = 2 * f.half * Math.min(1, k * 1.8)
+        const n = Math.round(f.r * 2.2)
+        for (let i = 0; i <= n; i++) {
+          const a = a0 + (span * i) / n
+          const ca = Math.cos(a), sa = Math.sin(a)
+          px(Math.round(x + ca * f.r), Math.round(y + sa * f.r), c('white'))
+          px(Math.round(x + ca * (f.r - 1)), Math.round(y + sa * (f.r - 1)), c('white'))
+          if (i & 1) px(Math.round(x + ca * (f.r - 3)), Math.round(y + sa * (f.r - 3)), c('gy5'))
+        }
+      }
       else if (f.k === 'num') { text(f.text, x - textW(f.text) / 2 + 1, y + 1, c('black')); text(f.text, x - textW(f.text) / 2, y, c(f.c)) }
       else if (f.k === 'zap') {
         for (let i = 0; i + 1 < f.pts.length; i++) {
@@ -552,6 +578,18 @@ export function createRenderer(fb) {
     rect(b.x + 1, b.y + 1, b.w - 2, 1, c('gy3'))
     text(label, b.x + b.w / 2 - textW(label, sc) / 2, b.y + b.h / 2 - (sc * 5) / 2, c('gy6'), sc)
   }
+  // 半透明の代わりに市松で塗った丸いボタン。振った直後は明るくする
+  function drawSwingBtn(S, L) {
+    const { x, y, r } = SWING_BTN
+    const hot = S.t - (L.swingT ?? -9) < 0.1
+    ditherDisc(x, y, r, hot ? c('white') : c('gy4'), 0)
+    ringPx(x, y, r, hot ? c('white') : c('gy5'), 1)
+    // 剣の印
+    const col = hot ? c('ye3') : c('white')
+    lineThick(x - 7, y + 7, x + 8, y - 8, 2, col)
+    lineThick(x - 8, y + 2, x - 2, y + 8, 1, col)
+    rect(x - 10, y + 9, 2, 2, col)
+  }
   function drawHud(S, ui, t) {
     const L = S.leader
     shadowText(`RESCUED ${S.rescued}/${S.total}`, 4, 4, c('ye3'), 1)
@@ -569,6 +607,7 @@ export function createRenderer(fb) {
     drawButton(PREV_BTN, '<')
     drawButton(NEXT_BTN, '>')
     drawButton(PAUSE_BTN, '=', false, 2)
+    if (S.isManual?.(L)) drawSwingBtn(S, L)
     drawMini(S, t)
     // ボスの体力
     const b = S.boss
@@ -604,7 +643,7 @@ export function createRenderer(fb) {
     text(title, x, 32, c('ye2'), sc)
     const sub = '99 FRIENDS - 100 HEROES'
     text(sub, W / 2 - textW(sub, 1) / 2, 84, c('white'), 1)
-    const lines = ['DRAG OR WASD: MOVE', 'TAP A FRIEND: SWITCH', 'FREE THEM ALL. DEFEAT THE DEMON KING.']
+    const lines = ['DRAG OR WASD: MOVE', 'SPACE/Z OR BUTTON: SWING', 'TAP A FRIEND: SWITCH', 'FREE THEM ALL. DEFEAT THE DEMON KING.']
     lines.forEach((l, i) => text(l, W / 2 - textW(l, 1) / 2, 104 + i * 10, c('gy5'), 1))
     drawButton(NEW_BTN, 'NEW GAME', ui.hot === 'new')
     if (ui.hasSave) drawButton(CONT_BTN, 'CONTINUE', ui.hot === 'cont')
@@ -660,6 +699,13 @@ export function createRenderer(fb) {
       if (en.k === 'ally') {
         if (o === L) ringPx(fx, fy - 1, 8, Math.floor(t * 4) & 1 ? c('ye3') : c('ye1'), 0.5)
         drawPerson(o, fx, fy)
+        if (o === L && S.isManual?.(o)) {
+          // 振る向きの印（向きの絵ができるまでのつなぎ）：体のまわりに小さな矢じり
+          const cx0 = fx, cy0 = fy - 8, ax = o.fx, ay = o.fy
+          for (let r = 12; r <= 15; r++) px(Math.round(cx0 + ax * r), Math.round(cy0 + ay * r), c('ye3'))
+          px(Math.round(cx0 + ax * 13 - ay * 2), Math.round(cy0 + ay * 13 + ax * 2), c('ye3'))
+          px(Math.round(cx0 + ax * 13 + ay * 2), Math.round(cy0 + ay * 13 - ax * 2), c('ye3'))
+        }
         if (o === L) {
           const bob = Math.round(Math.sin(t * 6) * 1.5)
           const ay = fy - SH - 11 - bob

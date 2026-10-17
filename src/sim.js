@@ -1,12 +1,13 @@
 // ゲームの中身。描画は持たない（Node でも動く）
 import { TILE, MW, MH, T, B, solidTile, generateWorld, createFlow, CASTLE } from './world.js'
+import { ENEMY_SIZE } from './enemysprites.js'
 import {
-  JOBS, JOB_LIST, JOB_COUNTS, ENEMIES, BOSS, MAX_LV, xpNeed, lvMul, SYLLABLES, CLOTHES, HAIRS,
+  HP_MUL, DMG_MUL, JOBS, JOB_LIST, JOB_COUNTS, ENEMIES, BOSS, MAX_LV, xpNeed, lvMul, SYLLABLES, CLOTHES, HAIRS, SWING, MASS,
 } from './data.js'
 
 export const VIEW_W = 320
 export const VIEW_H = 240
-export { JOBS, JOB_LIST, ENEMIES, BOSS, MAX_LV, xpNeed, lvMul }
+export { JOBS, JOB_LIST, ENEMIES, BOSS, MAX_LV, xpNeed, lvMul, SWING }
 
 const LEASH = 230 // 操作キャラからこれ以上離れた敵は追わない
 const rnd = (a, b) => a + Math.random() * (b - a)
@@ -17,13 +18,15 @@ export function createSim(opts = {}) {
   const world = generateWorld(opts.seed ?? 7)
   const flow = createFlow(world)
   const tiles = world.tiles
+  // manual: 操作キャラ（manual の職）は自分で振る。ボットや確認では渡さず、今までどおり自動で攻撃する
+  const MANUAL = opts.manual ?? false
   const S = {
     world, flow, t: 0, state: 'play', winT: 0,
     allies: [], enemies: [], cages: [], camps: [], projs: [], blasts: [], fx: [], hazards: [],
-    actA: [], actE: [], leader: null, cam: { x: 0, y: 0 }, input: { mx: 0, my: 0 },
+    actA: [], actE: [], leader: null, cam: { x: 0, y: 0 }, input: { mx: 0, my: 0, swing: false },
     nextId: 1, rescued: 0, total: 0, lost: 0, kills: 0, tpCool: 0, banner: null, bannerT: 0,
     flowKey: -1, boss: null, bossFight: false, bossFightT: 0, hazardsPrev: [], hitLog: null,
-    seen: new Uint8Array(MW * MH), deaths: [], deadIdx: new Set(),
+    seen: new Uint8Array(MW * MH), deaths: [], deadIdx: new Set(), hitstop: 0, shakeT: 0,
   }
 
   // --- 当たり判定・見通し ---
@@ -105,6 +108,7 @@ export function createSim(opts = {}) {
     if (!u.alive) return
     dmg = Math.max(1, Math.round(dmg))
     u.hp -= dmg
+    if (opts.test && u === S.leader) u.hp = Math.max(1, u.hp) // 試し場では操作キャラは倒れない
     if (S.hitLog) S.hitLog.push({ t: S.t, id: u.id, dmg, by: by ?? '?', hp: u.hp, maxhp: u.maxhp, job: u.job })
     u.hurtT = S.t
     u.flash = 0.12
@@ -283,6 +287,124 @@ export function createSim(opts = {}) {
     return true
   }
 
+  // --- 操作キャラが自分で振る剣 ---
+  const isManual = (u) => MANUAL && !!JOBS[u.job].manual
+  const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d }
+  // 予兆の最中の敵を斬ると、攻撃が止まって少し動けなくなる。ボスは近くの技（叩きつけ・突進・扇）だけ止まる
+  function stagger(e) {
+    if (e.kind === 'boss') {
+      if (e.pstate !== 'wind' || !['slam', 'charge', 'fan'].includes(e.atkKind)) return false
+      e.pstate = 'stun'
+      e.pT = SWING.bossStun
+    } else {
+      if (e.state !== 'wind') return false
+      e.state = 'stun'
+      e.stunT = SWING.stun
+    }
+    e.tele = null
+    num(e.x, e.y - e.rad - 12, 'BREAK', 'ye3')
+    ring(e.x, e.y, 'ye3', e.rad + 8, 0.3)
+    return true
+  }
+  function hitFeel(stop, shake) {
+    S.hitstop = Math.max(S.hitstop, stop)
+    if (shake) S.shakeT = 0.15
+  }
+  // 振った向きへ押し出す。重い敵ほど動かない
+  function knock(e, ca, sa) {
+    if (e.kind === 'boss') return
+    const m = e.def.big ? MASS.big : MASS[e.def.shape] ?? 1
+    const v = SWING.kb / m
+    if (v < 25) return
+    e.kbx = ca * v
+    e.kby = sa * v
+    e.kbT = SWING.kbTime
+  }
+  // 押し出されている間は自分では動かない。勢いよく壁にぶつかると、ダメージを受けて少し動けなくなる
+  function updateKnock(e, dt) {
+    const k = e.kbT / SWING.kbTime
+    e.kbT -= dt
+    const vx = e.kbx * k, vy = e.kby * k
+    const x0 = e.x, y0 = e.y
+    stepEnemy(e, vx, vy, 1, dt)
+    const want = Math.hypot(vx, vy) * dt, got = Math.hypot(e.x - x0, e.y - y0)
+    if (want > 0.8 && got < want * 0.4) {
+      e.kbT = 0
+      ring(e.x, e.y, 'gy6', e.rad + 4, 0.25)
+      spark(e.x, e.y - 4, 'br5', 6, 50)
+      S.shakeT = Math.max(S.shakeT, 0.1)
+      const L = S.leader
+      hurtEnemy(e, dmgOf(L) * SWING.wallDmg, L)
+      if (e.hp > 0 && e.state !== 'stun') { e.state = 'stun'; e.stunT = SWING.wallStun; e.tele = null }
+    }
+  }
+  function swing(u) {
+    u.cd = SWING.cd
+    u.swingT = S.t
+    const ang = Math.atan2(u.fy, u.fx)
+    const inArc = (x, y, r) => {
+      const d = Math.hypot(x - u.x, y - u.y)
+      return d <= r && (d < 6 || Math.abs(angDiff(Math.atan2(y - u.y, x - u.x), ang)) < SWING.half)
+    }
+    // 敵の当たりは、絵の形（四角）で見る。扇が少しでもかかるか、自分の体が絵に重なって（そばにいて）いれば当たる
+    const ox = u.x, oy = u.y - 3 // 振る中心は体のまんなか
+    const hitsBody = (e) => {
+      const sz = ENEMY_SIZE[e.kind] ?? { w: 16, h: 16 }
+      const lift = e.def.atk === 'flyer' ? 7 : 0
+      const x0 = e.x - sz.w * 0.35, x1 = e.x + sz.w * 0.35
+      const y0 = e.y + 6 - lift - sz.h * 0.9, y1 = e.y + 6 - lift
+      const near = 6
+      if (ox > x0 - near && ox < x1 + near && oy > y0 - near && oy < y1 + near) return true
+      for (let i = 0; i <= 4; i++) {
+        for (let j = 0; j <= 4; j++) {
+          const x = x0 + ((x1 - x0) * i) / 4, y = y0 + ((y1 - y0) * j) / 4
+          const d = Math.hypot(x - ox, y - oy)
+          if (d <= SWING.r && Math.abs(angDiff(Math.atan2(y - oy, x - ox), ang)) < SWING.half) return true
+        }
+      }
+      return false
+    }
+    if (S.fx.length < FXMAX) S.fx.push({ k: 'slash', x: u.x, y: u.y - 4, vx: 0, vy: 0, t: 0, life: 0.12, ang, r: SWING.r, half: SWING.half })
+    const dmg = dmgOf(u)
+    const ca = Math.cos(ang), sa = Math.sin(ang)
+    for (const e of S.actE) {
+      if (e.hp <= 0 || !hitsBody(e)) continue
+      const broke = stagger(e)
+      hurtEnemy(e, dmg, u)
+      e.flash = 0.16
+      // 斬った跡：振った向きに斜めの白い線
+      if (S.fx.length < FXMAX) S.fx.push({ k: 'cut', x: e.x, y: e.y - 6, vx: 0, vy: 0, t: 0, life: 0.12, ang: ang + 1.1, len: 9 + e.rad * 0.6 })
+      spark(e.x, e.y - 5, 'white', 3, 50)
+      if (e.hp <= 0) {
+        // とどめ：振った向きへ吹き飛んで消える
+        if (S.fx.length < FXMAX && e.kind !== 'boss') S.fx.push({ k: 'corpse', x: e.x, y: e.y, vx: ca * 150, vy: sa * 150, t: 0, life: 0.28, kind: e.kind, def: e.def, face: e.face, rad: e.rad })
+        hitFeel(SWING.bigStop, true)
+      } else {
+        knock(e, ca, sa)
+        hitFeel(broke ? SWING.bigStop : SWING.stop, broke)
+      }
+    }
+    // 飛んできた弾は、撃った敵へ弾き返す（撃った敵がいなければ、振った向きへ）
+    for (const p of S.projs) {
+      if (p.team !== 'enemy' || !inArc(p.x, p.y + 4, SWING.deflect)) continue
+      const src = p.by && p.by.hp > 0 ? p.by : null
+      const a = src ? Math.atan2(src.y - 4 - p.y, src.x - p.x) : ang
+      const sp = Math.max(160, Math.hypot(p.vx, p.vy) * 1.8)
+      p.vx = Math.cos(a) * sp
+      p.vy = Math.sin(a) * sp
+      p.team = 'ally'
+      p.by = u
+      p.dmg = Math.max(p.dmg * SWING.back, dmg * 2)
+      p.hit = new Set()
+      p.life = 1.6
+      p.splash = 0
+      p.deflected = true
+      spark(p.x, p.y, 'white', 5, 50)
+    }
+    const c = nearestCage(u.x, u.y, 30)
+    if (c && inArc(c.x, c.y, 30)) bashCage(u, c)
+  }
+
   // --- 檻 ---
   function openCage(c) {
     if (c.opened) return
@@ -459,6 +581,13 @@ export function createSim(opts = {}) {
       u.fy = my / fl
       if (Math.abs(mx) > 0.1) u.face = mx > 0 ? 1 : -1
     }
+    if (isManual(u)) {
+      // 押したのが振り終わる少し前でも、受け付けておいて振れるようになったら振る
+      if (inp.swing) { u.swingReq = S.t; inp.swing = false }
+      if (u.cd <= 0 && S.t - (u.swingReq ?? -9) < 0.15) { u.swingReq = -9; swing(u) }
+      return
+    }
+    inp.swing = false
     if (u.cd > 0) return
     if (J.kind === 'heal') { healPulse(u); return }
     const e = nearestEnemy(u.x, u.y, J.range + 2)
@@ -756,6 +885,12 @@ export function createSim(opts = {}) {
     e.flash -= dt
     e.tele = null
     if (e.kind === 'boss') return updateBoss(e, dt)
+    if (e.kbT > 0) return updateKnock(e, dt)
+    if (e.state === 'stun') { // 予兆を斬られて止まっている
+      e.stunT -= dt
+      if (e.stunT <= 0) { e.state = 'chase'; e.cdT = Math.max(e.cdT, 0.4) }
+      return
+    }
     const range = e.aggro ? D.aggro * 2 : D.aggro
     const tgt = enemyTarget(e, range)
     if (!tgt) { // 見失ったら、持ち場へ戻って体力を回復する
@@ -1043,7 +1178,7 @@ export function createSim(opts = {}) {
         p.y += p.vy * dt
         if (solidAt(p.x, p.y + 4)) {
           if (p.kind === 'magic') explode(p.x, p.y, p.splash, p.dmg, 'ally', p.by)
-          else if (p.kind === 'fireball' && p.splash) explode(p.x, p.y, p.splash, p.dmg, 'enemy', p.by)
+          else if (p.kind === 'fireball' && p.splash) explode(p.x, p.y, p.splash, p.dmg, p.team, p.by)
           else spark(p.x, p.y, 'gy4', 2, 20)
           p.life = 0
           continue
@@ -1103,6 +1238,7 @@ export function createSim(opts = {}) {
     const L = S.leader
     S.cam.x = Math.round(Math.max(0, Math.min(MW * TILE - VIEW_W, L.x - VIEW_W / 2)))
     S.cam.y = Math.round(Math.max(0, Math.min(MH * TILE - VIEW_H, L.y - VIEW_H / 2)))
+    if (S.shakeT > 0) { S.cam.x += Math.round(rnd(-1, 1) * SWING.shake); S.cam.y += Math.round(rnd(-1, 1) * SWING.shake) }
   }
   function reveal(tx, ty, r) {
     for (let y = Math.max(0, ty - r); y <= Math.min(MH - 1, ty + r); y++) {
@@ -1133,7 +1269,11 @@ export function createSim(opts = {}) {
       return
     }
     if (S.state !== 'play') return
+    // ヒットストップ：当たった瞬間、少しだけ全部を止める
+    if (S.hitstop > 0) { S.hitstop -= dt; return }
+    S.shakeT -= dt
     S.tpCool -= dt
+    if (playground) playground.step(dt)
     if (S.bannerT > 0) { S.bannerT -= dt; if (S.bannerT <= 0) S.banner = null }
     updateCamera()
     refreshFlow()
@@ -1213,6 +1353,44 @@ export function createSim(opts = {}) {
   updateCamera()
   refreshFlow()
 
+  // --- 試し場（createSim({ test: true })）：開始地点のまわりに、いろいろな敵を並べる ---
+  // 強さは地域の倍率をかけない素の値。倒されたら、しばらくして同じ場所に出直す。操作キャラは倒れない
+  const playground = opts.test ? makePlayground() : null
+  function makePlayground() {
+    const KINDS = ['slime', 'bat', 'goblin', 'boar', 'wolf', 'shaman', 'treant', 'scorpion', 'mummy', 'frostarcher', 'yeti', 'golem', 'knight', 'darkmage']
+    const base = (k) => {
+      const D = ENEMIES[k]
+      // 気づく距離を短くして、近づいた相手から一体ずつ戦えるようにする
+      return { ...D, hp: Math.round(D.hp / HP_MUL[D.tier]), dmg: Math.round(D.dmg / DMG_MUL[D.tier]), aggro: 60 }
+    }
+    const L = S.leader
+    for (const e of S.enemies) if (e !== S.boss && Math.hypot(e.x - L.x, e.y - L.y) < 500) e.hp = 0
+    S.enemies = S.enemies.filter((e) => e.hp > 0 || e === S.boss)
+    const slots = []
+    KINDS.forEach((k, i) => {
+      // 壁や水で置けなければ、少し近づけたり、向きをずらしたりして探す
+      found: for (const da of [0, 0.15, -0.15, 0.3, -0.3, 0.45, -0.45]) {
+        const a = ((i + da) / KINDS.length) * Math.PI * 2
+        for (let r = 140; r > 50; r -= 6) {
+          const x = L.x + Math.cos(a) * r, y = L.y + Math.sin(a) * r * 0.8
+          if (!boxBlocked(x, y, 8)) { slots.push({ k, x, y, def: base(k), e: null, wait: 0 }); break found }
+        }
+      }
+    })
+    return {
+      step(dt) {
+        L.hp = Math.max(L.hp, 1)
+        for (const sl of slots) {
+          if (sl.e && sl.e.hp > 0) continue
+          sl.wait -= dt
+          if (sl.wait > 0) continue
+          sl.e = newEnemy(sl.k, sl.x, sl.y, -9, sl.def)
+          sl.wait = 4
+        }
+      },
+    }
+  }
+
   // --- セーブ・ロード（戦いの最中は保存しない）---
   const b64 = (arr) => { let str = ''; for (let i = 0; i < arr.length; i += 8192) str += String.fromCharCode(...arr.subarray(i, i + 8192)); return btoa(str) }
   const unb64 = (str) => { const bin = atob(str); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out }
@@ -1262,7 +1440,7 @@ export function createSim(opts = {}) {
 
   Object.assign(S, {
     serialize, restore, canSave, spawnEnemy: (k, x, y) => { const e = newEnemy(k, x, y, -9); e.active = true; return e },
-    step, switchTo, cycle, tapAt, newAlly, openCage, boxBlocked, teleportNearView, inArena, healPulse,
+    step, switchTo, cycle, tapAt, newAlly, isManual, openCage, boxBlocked, teleportNearView, inArena, healPulse,
     bossPhase: () => (S.boss ? bossPhase(S.boss) : 0), nearestCage,
   })
   return S
