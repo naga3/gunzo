@@ -338,7 +338,7 @@ canvas.addEventListener('pointerdown', (e) => {
     S.input.pressed = true
     S.input.hold = true
     S.input.aim = null
-    drags.set(e.pointerId, { kind: 'btn', hold: true, fire: true, ax: p.x, ay: p.y })
+    drags.set(e.pointerId, { kind: 'btn', hold: true, fire: true, ax: SWING_BTN.x, ay: SWING_BTN.y })   // 狙いの中心はボタンの真ん中（スティックのように）
     return
   }
   // Z（Space）を押している間のドラッグは、振るボタンからずらすのと同じ: 移動ではなく狙い（始めた所からの向き）。Z を離すと撃つ
@@ -363,22 +363,28 @@ window.addEventListener('pointerdown', (e) => {
     S.input.pressed = true
     S.input.hold = true
     S.input.aim = null
-    drags.set(e.pointerId, { kind: 'btn', hold: true, fire: true, ax: p.x, ay: p.y })
+    drags.set(e.pointerId, { kind: 'btn', hold: true, fire: true, ax: SWING_BTN.x, ay: SWING_BTN.y })   // 狙いの中心はボタンの真ん中
     return
   }
   drags.set(e.pointerId, { kind: 'drag', pad: true, follow: false, ax: p.x, ay: p.y, sx: p.x, sy: p.y, x: p.x, y: p.y, t: performance.now(), moved: 0 })
 })
 const FOLLOW_STOP = 3, FOLLOW_SLOW = 14            // マウスへ歩くとき: この近さで止まり、この距離の内側ではゆっくり
-const AIM_DEAD = 5                                   // ボタンから、これ以上ずらしたら狙う（それまでは自動）
+const AIM_DEAD_PX = 10                               // ボタンの真ん中から、画面でこれ以上（CSS ピクセル）ずらしたら狙う（それまでは自動）
 window.addEventListener('pointermove', (e) => {
   const d = drags.get(e.pointerId)
   if (d?.kind === 'btn' && (d.fire || d.aim)) {
     const p = toFb(e), dx = p.x - d.ax, dy = p.y - d.ay, m = Math.hypot(dx, dy)
     d.x = p.x
     d.y = p.y
-    S.input.aim = m > AIM_DEAD ? [dx / m, dy / m] : null
-    // 爆弾は、落とす場所: ずらした向きへ、ずらした長さの THROW.drag 倍だけ先
-    S.input.target = throwsBomb() && m > AIM_DEAD ? { x: S.leader.x + dx * THROW.drag, y: S.leader.y + dy * THROW.drag } : null
+    if (m > AIM_DEAD_PX / p.scale) {
+      d.aimed = true
+      S.input.aim = [dx / m, dy / m]
+      // 爆弾は、落とす場所: ずらした向きへ、ずらした長さの THROW.drag 倍だけ先
+      S.input.target = throwsBomb() ? { x: S.leader.x + dx * THROW.drag, y: S.leader.y + dy * THROW.drag } : null
+    } else if (!d.aimed) {                           // まだ一度もずらしていない: 自動で狙う。一度ずらしたら、真ん中に戻っても前の向きのまま
+      S.input.aim = null
+      S.input.target = null
+    }
     return
   }
   if (!d || d.kind !== 'drag') return
