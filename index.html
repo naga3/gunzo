@@ -7,7 +7,7 @@
 <link rel="icon" href="data:,">
 <style>
   html, body { margin: 0; height: 100%; background: #0d0b14; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-  body { display: flex; align-items: center; justify-content: center; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
   canvas { image-rendering: pixelated; touch-action: none; user-select: none; -webkit-user-select: none; }
   /* 世界（1 ドット大きい）を、カメラの半端な分だけずらして見せる枠。HUD（#c）はその上に重ねる */
   #view { position: relative; overflow: hidden; }
@@ -15,10 +15,14 @@
   #c { position: absolute; left: 0; top: 0; }
   /* 画面の外の余白（スマホ）: 移動のスティックと振るボタンを描く。画面全体に敷き、ゲームの画面はその上に重なる */
   #pad { position: fixed; left: 0; top: 0; pointer-events: none; }
+  /* PC のキーの説明（ゲーム画面のすぐ上。main.js がスマホでは隠す） */
+  #keys { color: #b8bdd0; font: 13px/1.4 system-ui, sans-serif; padding: 2px 8px 4px; white-space: nowrap; }
+  #keys b { color: #ffe066; font-weight: 600; }
 </style>
 </head>
 <body>
 <canvas id="pad"></canvas>
+<div id="keys"><b>Z</b>・<b>Space</b> 攻撃（長押しでため。押している間はマウスの方へ狙う）　<b>Q</b>・<b>W</b> 仲間を切り替え（&lt; &gt;）　<b>Esc</b> ポーズ　<b>M</b> 音</div>
 <div id="view"><canvas id="world"></canvas><canvas id="c"></canvas></div>
 <script type="module" src="/src/main.js"></script>
 </body>

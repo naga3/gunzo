@@ -74,8 +74,13 @@ function layoutPad() {
   const img = padCtx.createImageData(pw, ph), fb = new Uint8Array(pw * ph)
   pad = { fb, img, out32: new Uint32Array(img.data.buffer), renderer: createRenderer(fb, pw, ph), ctx: padCtx }
 }
+// PC（マウスの端末）では、ゲーム画面のすぐ上にキーの説明を 1 行出す（その分だけ画面を小さく）
+const keyHelp = document.getElementById('keys')
+const isPC = matchMedia('(pointer: fine)').matches
+if (keyHelp) keyHelp.style.display = isPC ? '' : 'none'
 function resize() {
-  scale = Math.min(window.innerWidth / W, window.innerHeight / H)
+  const top = isPC && keyHelp ? keyHelp.offsetHeight + 6 : 0
+  scale = Math.min(window.innerWidth / W, (window.innerHeight - top) / H)
   view.style.width = `${W * scale}px`
   view.style.height = `${H * scale}px`
   hud.el.style.width = `${W * scale}px`
@@ -436,11 +441,12 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault()
     return
   }
-  if (k === 'e' || k === 'tab') { S.cycle(1); e.preventDefault() }
-  else if (k === 'q' && TEST) {                     // 試し場: 操作キャラを次の職に（手触りを試す用）
+  if (k === 'w' || k === 'e' || k === 'tab') { S.cycle(1); e.preventDefault() }   // 次の仲間（>）。W はキーの説明に出す
+  else if (k === 'q') S.cycle(-1)                   // 前の仲間（<）
+  else if (k === 'j' && TEST) {                     // 試し場: 操作キャラを次の職に（手触りを試す用）
     const i = JOB_LIST.indexOf(S.leader.job)
     S.setJob(S.leader, JOB_LIST[(i + 1) % JOB_LIST.length])
-  } else if (k === 'q') S.cycle(-1)
+  }
   keys.add(k)
 })
 window.addEventListener('keyup', (e) => {
@@ -463,10 +469,10 @@ function readInput() {
     if (throwsBomb()) S.input.target = { x: mouseAt.x + S.camF.x, y: mouseAt.y + S.camF.y }   // 爆弾は、マウスのある場所へ落とす
   }
   let mx = 0, my = 0
-  if (keys.has('arrowleft') || keys.has('a')) mx -= 1
-  if (keys.has('arrowright') || keys.has('d')) mx += 1
-  if (keys.has('arrowup') || keys.has('w')) my -= 1
-  if (keys.has('arrowdown') || keys.has('s')) my += 1
+  if (keys.has('arrowleft')) mx -= 1               // キーで歩くのは矢印だけ（W は次の仲間。2026-10-18 に WASD をやめた）
+  if (keys.has('arrowright')) mx += 1
+  if (keys.has('arrowup')) my -= 1
+  if (keys.has('arrowdown')) my += 1
   ui.stick = null
   ui.padStick = null
   for (const d of drags.values()) {

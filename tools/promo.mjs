@@ -1,7 +1,8 @@
 // 紹介動画を作る（画面なし。シミュレーションと描画を直接動かし、ffmpeg で字幕と曲を付けて MP4 にする）
 //   node tools/promo.mjs [出力（既定 build/gunzo-promo.mp4）]
-// 前半: 派手なみどころ（100 人で魔王に挑む、隙で一斉に攻める、ナイトメアの大群、大技）。曲はボス戦
-// 後半: 職の紹介（10 職、字幕付き）と、ゲームの紹介（檻の仲間を助ける、仲間の一覧、締め）。曲はフィールド
+// 前半: みどころ（仲間 10 人ほどのふつうの冒険、大技、ナイトメア、最後に 100 人のボス戦を少し）。曲はボス戦
+// 後半: 職の紹介（10 職。味方はその人だけ、字幕付き）と、ゲームの紹介（檻の仲間を助ける、仲間の一覧、締め）。曲はフィールド
+// 動画では、当たったときに一瞬止まる演出（ヒットストップ）と画面の揺れを切る（1 秒 30 コマだと、つっかえて見える）
 // 操作キャラは簡単な自動操作。字幕は Noto Sans CJK JP（ffmpeg の drawtext）
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
@@ -12,7 +13,7 @@ import { createSim, JOBS, JOB_LIST } from '../src/sim.js'
 import { JOB_COUNTS } from '../src/data.js'
 import { createRenderer, W, H } from '../src/render.js'
 import { ALL_HEX } from '../src/shade.js'
-import { TILE, MW, createFlow } from '../src/world.js'
+import { TILE, MW, MH, B, createFlow } from '../src/world.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = resolve(process.argv[2] || join(ROOT, 'build/gunzo-promo.mp4'))
@@ -39,12 +40,16 @@ const write = () => new Promise((ok) => {
 // sec 秒録る。each(dt) は 1/60 秒ごとの操作。ui は描くときの画面（HUD を出さないときは layer 'world'）
 async function record(S, sec, each, { ui = { screen: 'play' }, layer = 'world', before = null } = {}) {
   for (let f = 0; f < sec * FPS; f++) {
-    for (let s = 0; s < 2; s++) { each?.(STEP); S.step(STEP) }
+    for (let s = 0; s < 2; s++) { each?.(STEP); S.hitstop = 0; S.shakeT = 0; S.step(STEP) }
     before?.()
     R.draw(S, ui, S.t, layer)
     await write()
   }
 }
+// 味方を減らす: 操作キャラと、近い n 人だけ残す（人が多すぎると何が起きているか分からない）
+const thin = (S, n) => { const L = S.leader; S.allies = [L, ...S.allies.filter((a) => a !== L).sort((a, b) => Math.hypot(a.x - L.x, a.y - L.y) - Math.hypot(b.x - L.x, b.y - L.y)).slice(0, n)] }
+// 敵を減らす: 操作キャラから近い max 体だけ残す（遠い分は黙って消す）
+const trimEnemies = (S, max) => { const L = S.leader; const live = S.enemies.filter((e) => e.hp > 0 && e !== S.boss).sort((a, b) => Math.hypot(a.x - L.x, a.y - L.y) - Math.hypot(b.x - L.x, b.y - L.y)); for (const e of live.slice(max)) e.hp = 0 }
 const party = (lv) => JOB_LIST.flatMap((j) => Array.from({ length: JOB_COUNTS[j] + (j === 'sword' ? 1 : 0) }, (_, i) => ({ job: j, lvl: lv, xp: 0, name: `${j}${i}` })))
 
 // ---- 職ごとの簡単な自動操作（tools/video.mjs と同じ考え） ----
@@ -98,53 +103,67 @@ const immortal = (S) => () => { if (S.leader) S.leader.hp = S.leader.maxhp }
   caption('99 人を助けて、100 人で魔王を倒せ', 3.5, true)
   await record(S, 3.5, null, { ui: { screen: 'title', slots: [] }, layer: 'all' })
 }
-// 2. 100 人で魔王に挑む。操作キャラ（剣士）が予兆を斬って隙を作り（OPENING!）、全員で一斉に攻める
-{
-  const S = createSim({ manual: true, test: 'boss', testLv: 22, hero: 'sword' })
+// 2. ふつうの冒険: 仲間 10 人ほどで、地域の見張りの陣地に攻め込む（2 か所）
+const MIX = ['shield', 'bow', 'heal', 'hammer', 'volt', 'bomb', 'ice', 'thief', 'boom', 'bow']
+for (const [tier, lv, text] of [[2, 7, '仲間と一緒に、各地の敵の陣地へ'], [3, 11, '助けた仲間は、それぞれの技で自分から戦う']]) {
+  const S = createSim({ manual: true })
+  const camp = S.camps.filter((c) => c.tier === tier).map((c) => ({ c, n: S.enemies.filter((e) => e.hp > 0 && e.camp === S.camps.indexOf(c)).length })).sort((x, y) => y.n - x.n)[0].c
+  const L = S.leader
+  L.x = camp.x - 70; L.y = camp.y + 40
+  L.lvl = lv; L.maxhp = Math.round(JOBS[L.job].hp * (1 + 0.1 * (lv - 1))); L.hp = L.maxhp
+  MIX.forEach((j, i) => { const a = S.newAlly(j, L.x - 20 + (i % 5) * 10, L.y + 10 + Math.floor(i / 5) * 12, lv); a.hp = a.maxhp })
   const drive = driver(S), keep = immortal(S)
-  let lastOpen = -9
-  const each = (dt) => {
-    keep()
-    const b = S.boss, L = S.leader
-    if (b && b.hp > 0 && L) {                      // ボスへ向かう。予兆が見えたら（間をあけて）隙を作る
-      const d = Math.hypot(b.x - L.x, b.y + 30 - L.y)
-      if (d > 30) { const [ux, uy] = unit(b.x - L.x, b.y + 30 - L.y); S.input.mx = ux; S.input.my = uy } else drive(dt)
-      if (b.pstate === 'wind' && S.t - lastOpen > 5 && b.aggro) { lastOpen = S.t; S.bossOpening(b, L) }
-    }
-  }
-  const opt = { layer: 'all' }                     // ボスの体力と「OPENING!」は HUD に出る
-  caption('100 人で、魔王に挑む', 4)
-  await record(S, 4, each, opt)
-  caption('技を止めて隙を作れば、全員で一斉攻撃！', 5)
-  await record(S, 5, each, opt)
-  caption('数で押し、腕で崩す', 5)
-  await record(S, 5, each, opt)
+  for (let i = 0; i < 60 * 1.5; i++) { drive(STEP); keep(); S.step(STEP) }
+  caption(text, 6)
+  await record(S, 6, (dt) => { keep(); drive(dt) })
 }
-// 3. ナイトメア: 湧き続ける大群
+// 3. 大技を手早く（仲間は 8 人ほど、敵も近くの 12 体まで）
+for (const [job, text] of [['hammer', 'ハンマーで地面を叩いて、まとめて吹き飛ばす'], ['volt', '稲妻が敵から敵へ'], ['ice', '凍らせて、砕く'], ['bow', '引き絞った炎の矢']]) {
+  const S = createSim({ manual: true, test: 'field', hero: job })
+  thin(S, 8)
+  const drive = driver(S)
+  const each = (dt) => { trimEnemies(S, 12); drive(dt) }
+  for (let i = 0; i < 60 * 3; i++) { each(STEP); S.step(STEP) }
+  caption(text, 3.5)
+  await record(S, 3.5, each)
+}
+// 4. ナイトメア: 湧き続ける大群（仲間は 20 人、少しだけ）
 {
   const S = createSim({ manual: true, nightmare: { party: party(30) } })
   S.setJob(S.leader, 'bomb')
+  thin(S, 20)
   const drive = driver(S), keep = immortal(S)
   const KINDS = ['slime', 'bat', 'goblin', 'wolf', 'scorpion', 'snowwolf', 'knight', 'firebat', 'mummy', 'icegel']
-  const swarm = () => {                            // 画面のまわりに敵を補い、いつも 200 体ほどの大群にする（見せるため）
+  const swarm = () => {                            // 画面のまわりに敵を補い、いつも 120 体ほどの大群にする（見せるため）
     const L = S.leader, n = S.enemies.filter((e) => e.hp > 0).length
-    for (let i = n; i < 200; i++) {
+    for (let i = n; i < 120; i++) {
       const a = Math.random() * Math.PI * 2, r = 130 + Math.random() * 60
       const e = S.spawnEnemy(KINDS[(Math.random() * KINDS.length) | 0], L.x + Math.cos(a) * r, L.y + Math.sin(a) * r * 0.8)
       e.aggro = true
     }
   }
-  for (let i = 0; i < 60 * 20; i++) { drive(STEP); keep(); swarm(); S.step(STEP) }   // 大群が寄ってくるまで進めておく（録らない）
-  caption('クリア後はナイトメア。終わらない大群に、何秒耐えられるか', 6)
-  await record(S, 6, (dt) => { keep(); swarm(); drive(dt) })
+  for (let i = 0; i < 60 * 15; i++) { drive(STEP); keep(); swarm(); S.step(STEP) }
+  caption('クリア後はナイトメア。終わらない大群に、何秒耐えられるか', 5)
+  await record(S, 5, (dt) => { keep(); swarm(); drive(dt) })
 }
-// 4. 大技を手早く: ハンマーの地面叩き、雷の連鎖、氷で凍らせて砕く、爆弾
-for (const [job, text] of [['hammer', 'ハンマーで地面を叩いて、まとめて吹き飛ばす'], ['volt', '稲妻が敵から敵へ'], ['ice', '凍らせて、砕く'], ['bow', '引き絞った炎の矢']]) {
-  const S = createSim({ manual: true, test: 'field', hero: job })
-  const drive = driver(S)
-  for (let i = 0; i < 60 * 3; i++) { drive(STEP); S.step(STEP) }
-  caption(text, 3.5)
-  await record(S, 3.5, drive)
+// 5. 最後は 100 人で魔王に挑む（少しだけ）。操作キャラはあまり動かさず、予兆が見えたら隙を作る（OPENING!）
+{
+  const S = createSim({ manual: true, test: 'boss', testLv: 22, hero: 'sword' })
+  const keep = immortal(S)
+  let lastOpen = -9, tapT = 0
+  const each = (dt) => {
+    keep()
+    const b = S.boss, L = S.leader
+    S.input.mx = 0; S.input.my = 0
+    if (!b || b.hp <= 0 || !L) return
+    const d = Math.hypot(b.x - L.x, b.y + 40 - L.y)
+    if (d > 26) { const [ux, uy] = unit(b.x - L.x, b.y + 40 - L.y); S.input.mx = ux; S.input.my = uy }   // ボスの前まで歩いて、そこで止まる
+    else if ((tapT -= dt) <= 0) { S.input.pressed = true; S.input.hold = true; tapT = 0.5 } else S.input.hold = false
+    if (b.pstate === 'wind' && S.t - lastOpen > 4 && b.aggro) { lastOpen = S.t; S.bossOpening(b, L) }
+  }
+  for (let i = 0; i < 60 * 6; i++) { each(STEP); S.step(STEP) }   // ボスの前まで（録らない）
+  caption('最後は 100 人で魔王に挑む。技を止めて、一斉攻撃！', 6)
+  await record(S, 6, each, { layer: 'all' })
 }
 const firstHalf = now()
 
@@ -162,12 +181,44 @@ const DESC = {
   hammer: 'ハンマー　遅いが重い一撃。溜めて地面を叩くと周りを吹き飛ばす',
 }
 {
-  const S = createSim({ manual: true, test: 'field', hero: JOB_LIST[0] })
+  // ふつうの世界で、味方はその人だけ。敵は最初の陣地の敵を消し、まわりにいつも 4 体ほど（倒されたら画面の外から 1 体ずつ補う。
+  // 湧いた敵をその場で消すと、1 コマだけ映ってちらつくので、消さずに補うだけにする）
+  const S = createSim({ manual: true })
+  const L = S.leader
+  L.lvl = 10; L.maxhp = Math.round(JOBS[L.job].hp * 1.9); L.hp = L.maxhp
+  // 開始地点は世界の端で、カメラが止まって操作キャラが画面の端に寄るので、まわりが開けた内側の草原へ
+  let best = null, open = -1
+  for (let ty = 10; ty < MH - 10; ty += 2) for (let tx = 12; tx < MW - 12; tx += 2) {
+    if (S.world.biome[ty * MW + tx] !== B.GRASS) continue
+    if (S.cages.some((c) => Math.hypot(c.tx - tx, c.ty - ty) < 12)) continue   // 檻が映らない所
+    const x = tx * TILE + 8, y = ty * TILE + 8
+    let n = 0
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -6; dx <= 6; dx++) if (!S.boxBlocked(x + dx * TILE, y + dy * TILE, 6)) n++
+    if (n > open) { open = n; best = [x, y] }
+  }
+  L.x = best[0]; L.y = best[1]
+  for (const e of S.enemies) if (e !== S.boss) e.hp = 0
+  S.allies = [L]
+  const KINDS = ['slime', 'goblin', 'boar', 'wolf', 'bat', 'shaman', 'scorpion', 'mummy']
+  const keep = immortal(S)
+  const feed = () => {
+    const n = S.enemies.filter((e) => e.hp > 0 && e !== S.boss && Math.hypot(e.x - L.x, e.y - L.y) < 260).length
+    for (let i = n; i < 4; i++) {
+      for (let tries = 0; tries < 20; tries++) {
+        const a = Math.random() * Math.PI * 2, x = L.x + Math.cos(a) * 190, y = L.y + Math.sin(a) * 150   // 画面のすぐ外
+        if (S.boxBlocked(x, y, 8)) continue
+        const e = S.spawnEnemy(KINDS[(Math.random() * KINDS.length) | 0], x, y)
+        e.aggro = true
+        break
+      }
+    }
+  }
+  for (let i = 0; i < 60 * 2; i++) { feed(); keep(); S.step(STEP) }
   caption('10 の職。どの仲間も、操作すると自分の技が使える', 3.5, true)
-  await record(S, 3.5, null)
+  await record(S, 3.5, () => { feed(); keep() })
   for (const job of JOB_LIST) {
-    S.setJob(S.leader, job)
-    const drive = driver(S)
+    S.setJob(L, job)
+    const drv = driver(S), drive = (dt) => { feed(); keep(); drv(dt) }
     const [name, desc] = DESC[job].split('　')
     caption(desc, 4.5)
     captions.push({ from: now(), to: now() + 4.5, text: name, title: true })
