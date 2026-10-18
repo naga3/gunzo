@@ -25,10 +25,11 @@ export const SLOT_BTNS = [0, 1, 2].map((i) => ({ x: W / 2 - 100, y: 96 + i * 32,
 export const slotItemBtn = (i) => ({ x: W / 2 - 70, y: 112 + i * 26, w: 140, h: 22 })
 // ポーズ画面: 下に並ぶボタンと、仲間の一覧のページ送り
 export const MENU_BTNS = [
-  { id: 'resume', label: 'RESUME', x: 96, y: H - 24, w: 54, h: 20 },
-  { id: 'save', label: 'SAVE', x: 152, y: H - 24, w: 52, h: 20 },
-  { id: 'sound', label: 'SOUND', x: 206, y: H - 24, w: 56, h: 20 },
-  { id: 'title', label: 'TITLE', x: 264, y: H - 24, w: 52, h: 20 },
+  { id: 'resume', label: 'RESUME', x: 96, y: H - 24, w: 44, h: 20 },
+  { id: 'save', label: 'SAVE', x: 142, y: H - 24, w: 40, h: 20 },
+  { id: 'sound', label: 'SOUND', x: 184, y: H - 24, w: 44, h: 20 },
+  { id: 'full', label: 'FULL', x: 230, y: H - 24, w: 44, h: 20 },     // 全画面（ブラウザのバーを消す。できないブラウザでは灰色）
+  { id: 'title', label: 'TITLE', x: 276, y: H - 24, w: 40, h: 20 },
 ]
 export const PAGE_PREV = { x: 4, y: H - 24, w: 20, h: 20 }
 export const PAGE_NEXT = { x: 70, y: H - 24, w: 20, h: 20 }
@@ -1131,12 +1132,12 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       text(pg, (PAGE_PREV.x + PAGE_PREV.w + PAGE_NEXT.x) / 2 - textW(pg, 1) / 2, H - 16, c('white'), 1)
     }
     for (const b of MENU_BTNS) {
-      if (b.id === 'save' && !ui.canSave) {        // 戦いの最中・ナイトメアでは押せない（灰色）
+      if ((b.id === 'save' && !ui.canSave) || (b.id === 'full' && !ui.canFull)) {   // 戦いの最中・ナイトメアの SAVE、全画面にできないブラウザの FULL は押せない（灰色）
         rect(b.x, b.y, b.w, b.h, c('black')); rect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, c('gy1'))
         text(b.label, b.x + b.w / 2 - textW(b.label, 1) / 2, b.y + b.h / 2 - 2, c('gy3'), 1)
         continue
       }
-      drawButton(b, b.id === 'sound' ? (ui.sound ? 'SOUND ON' : 'SOUND OFF') : b.label, b.id === 'save' && ui.savedFlash > 0, 1)
+      drawButton(b, b.id === 'sound' ? (ui.sound ? 'SOUND ON' : 'SOUND OFF') : b.id === 'full' ? (ui.full ? 'FULL OFF' : 'FULL ON') : b.label, b.id === 'save' && ui.savedFlash > 0, 1)
     }
     const note = ui.savedFlash > 0 ? 'SAVED!' : !ui.canSave && !S.nightmare && ui.saveNote ? `${ui.saveNote} - CAN'T SAVE IN BATTLE` : ui.saveNote
     if (note) text(note, 152, H - 31, ui.savedFlash > 0 ? c('ye3') : c('gy4'), 1)

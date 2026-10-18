@@ -273,6 +273,12 @@ function toFb(e) {
   const r = canvas.getBoundingClientRect()
   return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height, scale: r.width / W }
 }
+// 全画面（ブラウザのアドレスバーなどを消す）: 押したときにしか切り替えられない（ブラウザの決まり）。iPhone の Safari などはできない
+function toggleFull() {
+  const el = document.documentElement
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+  else (el.requestFullscreen?.({ navigationUI: 'hide' }) ?? Promise.reject()).catch(() => {})
+}
 const pause = () => { ui.paused = true; ui.page = 0 }
 const turnPage = (d) => { const n = listPages(S); ui.page = (((ui.page ?? 0) + d) % n + n) % n }
 // タイトル: スロットを選ぶ（空きならすぐ始める）、選んだスロットの項目
@@ -324,6 +330,7 @@ canvas.addEventListener('pointerdown', (e) => {
       if (b.id === 'resume') ui.paused = false
       else if (b.id === 'sound') { ui.sound = !ui.sound; localStorage.setItem(SOUND_KEY, ui.sound ? '1' : '0'); audio.setEnabled(ui.sound) }
       else if (b.id === 'save') { if (save()) ui.savedFlash = 1.2 }
+      else if (b.id === 'full' && ui.canFull) toggleFull()
       else if (b.id === 'title') toTitle()
     }
     return
@@ -542,6 +549,8 @@ function frame(now) {
   last = now
   // ポーズの SAVE の様子
   ui.canSave = !!slot && !S.nightmare && S.canSave()
+  ui.canFull = !!document.fullscreenEnabled
+  ui.full = !!document.fullscreenElement
   ui.saveNote = S.nightmare ? 'NIGHTMARE - NO SAVE' : lastSaveT < 0 ? 'NOT SAVED YET' : `SAVED ${fmtTime(S.t - lastSaveT)} AGO`
   if (ui.savedFlash > 0) ui.savedFlash -= dt
   if (ui.screen === 'play' && !ui.paused) {
