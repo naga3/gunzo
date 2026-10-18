@@ -45,7 +45,7 @@ function layoutPad() {
   let mode = null
   if (touch && below >= PAD_MIN && below >= side * 2) mode = 'bottom'
   else if (touch && side >= PAD_MIN * 0.8) mode = 'side'
-  document.body.style.alignItems = mode === 'bottom' ? 'flex-start' : 'center'
+  document.body.style.justifyContent = mode === 'bottom' ? 'flex-start' : 'center'   // 縦持ちはゲーム画面を上に寄せる（body は縦に並べる flex なので、上下は justifyContent）
   Object.assign(SWING_BTN, SWING_HOME)
   ;[PAUSE_BTN, PREV_BTN, NEXT_BTN].forEach((b, i) => Object.assign(b, NAV_HOME[i]))
   ui.pad = null
@@ -523,7 +523,14 @@ function events() {
   prev = { rescued: S.rescued, lost: S.lost, state: S.state, boss: bossOn, leaderId: S.leader ? S.leader.id : 0, leaderLv: S.leader ? S.leader.lvl : 1, swingT: L?.swingT, hits: S.leaderHits ?? 0 }
 }
 let frameAvg = 1 / 60
+// ゲーム画面の位置が途中で動いたら（アプリの中のブラウザが下のバーを出し入れするなど、resize が来ないことがある）、余白のボタンを置き直す
+let viewAt = ''
+window.visualViewport?.addEventListener('resize', resize)
 function frame(now) {
+  if (padReady) {
+    const r = view.getBoundingClientRect(), at = `${r.left},${r.top},${window.innerWidth},${window.innerHeight}`
+    if (at !== viewAt) { viewAt = at; resize() }
+  }
   const dt = Math.min(0.05, (now - last) / 1000)
   const last0 = last
   last = now
