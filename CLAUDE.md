@@ -6,7 +6,7 @@
 - 320x240、64 色（ほかに、ゲームの中だけで各色の暗い色を 64 色足す。`src/shade.js`。予兆の暗い丸と、タイトル・ポーズ・ゲームオーバー・クリアの画面で後ろの世界を暗くするのに使う〈網掛けの代わり〉。表示は `ALL_HEX`）。色の表の元は `art/gunzo.gpl`（GIMP のパレット。ゲームも Pixel もここを読む。`src/palette.js` は `node tools/pixel.mjs build` が作るので手で直さない）。256 色までは足してよい（2026-10-17 に 64 色の縛りはやめた）。**色は後ろに足すだけで、並べ替え・消すはしない**（絵は番号で色を覚えている。色みを変えるのはよい）。インデックスバッファ（`fb`）に描き、表示側で最近傍のまま拡大する。AA・グラデーションは使わない。半透明は、世界の絵（地面・人・敵・演出）では使わない（代わりに市松）。UI（ボタン・HUD など）は例外で、半透明を使ってよい（2026-10-18。番号 254／253 を、表示側 `main.js` の `PAL32` で透けた黒・透けた白にする。`render.js` の `GLASS`・`GLASS_HOT`。色を増やすときは 252 から下へ。振るボタン・ポーズ・前・次・名前の欄・ミニマップ〈まだ見ていない所〉は `GLASS`。スマホの余白は後ろが黒いので透かさない）
 - スクロールはドットより細かく（2026-10-17）: 世界（地面・人・演出）は 1 ドット大きい絵（`#world`）に `S.cam`（`S.camF` の整数の部分）から描き、半端な分だけ CSS でずらす。HUD・タイトルなどは別の絵（`#c`。255 は透明）に描いて上に重ねる（`render.js` の `draw(S, ui, t, 'world' | 'hud')`、`main.js`）
 - 文字は 3x5 のビットマップフォント（`src/render.js`、英数字のみ）
-- 音は PX-13h の音源で ogg に書き出して再生するだけ（`node tools/render-audio.mjs` で `public/audio/` へ。ffmpeg が要る。音源は px13h の `tools/music/web/engine.wasm`）。曲は field / boss / ending、効果音は rescue / lost / switch / levelup / win / over。戦闘中の効果音は鳴らさない
+- 音は PX-13h の音源で ogg に書き出して再生するだけ（`node tools/render-audio.mjs` で `public/audio/` へ。ffmpeg が要る。音源は px13h の `tools/music/web/engine.wasm`）。曲は field / boss / ending、効果音は rescue / lost / switch / levelup / win / over。戦闘の効果音は、操作キャラの攻撃だけ控えめに鳴らす（2026-10-18。swing 振る〈剣・盾・盗賊・ハンマー〉、shot 撃つ〈ほかの職〉、hit 当たった〈同じ 1/20 秒に 1 回〉。`main.js` の events で、操作キャラの swingT の変化と sim の leaderHits を見る）。自律の仲間の攻撃では鳴らさない
   - 曲は `music/<名前>.song`（PX-13h Music の曲のファイル。2026-10-18 に `tools/sounds.mjs` の MML から移した）。`music/` は Music の「グループ gunzo」で、Music のファイルを開くから `gunzo/field` などを開いて会話しながら直す（px13h で `tools/music/run.sh`）。上書き保存すると `music/group.json` の after（`node tools/render-audio.mjs field boss ending`）が動いて ogg になり、ゲームに出る。曲づくりの決まりは `music/GROUP.md`
   - 書き出すときの音の大きさ（peak）と繰り返すか（loop）は `tools/sounds.mjs` の `BGM`。効果音は今までどおり `tools/sounds.mjs` の `SE`
 
@@ -61,6 +61,8 @@
   - 目安（2026-10-18、円を描いて歩くだけのボット）: 仲間 100 人が LV10 で 3 分 20 秒、LV30 で 4 分 50 秒、LV99 で 7 分ほど
 
 - 画面の外の余白（スマホ、2026-10-18。`main.js` の `layoutPad`、`render.js` の `drawPad`、`index.html` の `#pad`）: 指で触る端末で、余白が 100 CSS ピクセル以上あれば使う。縦持ちはゲームの画面を上に寄せ、下の余白の左が移動（触った所が中心のスティック）、右が振るボタン。横持ちは左の帯が移動、右の帯が振るボタン。余白があるときは、画面の上の振るボタンは出さない。ポーズ・前・次のボタンも余白へ（縦持ちは下の余白の左上に横並び、横持ちは左の帯の上に横並び〈帯に 3 つ入る大きさまで〉。余白では見た目で 46 CSS ピクセルほどに大きくする）。指で押すときは、ボタンのまわり 4 ドットも押したことにする。画面の中のドラッグ移動と、仲間のタップ切り替えは残す。PC と狭い余白では今までどおり
+
+- 地面の描き方（2026-10-18。`render.js` の `drawMap`）: 1. マスごとの地面（水・道・木・岩のマスも下は地面）と、マス目に乗らない小さな飾り（`drawBits`。3 割のマスに 1 つ。Pixel の `bit1`〜があればそれ） 2. 地域の境 → 道 → 水を、マス目から半マスずらした位置に、まわり 4 マスで決まる 16 通りの形（`EDGE_MASKS`。角の値をなめらかにつないで角を丸め、ゆるい波と揺らぎ）で重ねる（デュアルグリッド。水のふちは 1 ドットの明るい線） 3. 木と岩（透明のまま。木は数ドットずらす）。通れる・通れないはマスのまま
 
 ## Pixel で絵を描く（~/src/etc/px13h/tools/pixel）
 - `art/` は Pixel の「グループ gunzo」。Pixel のファイルの一覧から `gunzo/allies/sword` などを開いて、ここの絵を直接描く（px13h で `tools/pixel/run.sh`）

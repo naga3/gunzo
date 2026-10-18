@@ -1,6 +1,6 @@
 // 描画。640x480 のインデックスバッファ（fb）にパレット番号で描く。DOM は使わない
 import { P } from './palette.js'
-import { dark } from './shade.js'
+import { dark, ALL_HEX } from './shade.js'
 import { TILE, MW, MH, T, B } from './world.js'
 import { JOBS, VIEW_W, VIEW_H, MAX_LV, xpNeed } from './sim.js'
 import { SHOOT, GUARD, THROW, PRAY, FREEZE } from './data.js'
@@ -264,7 +264,7 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       const t = new Uint8Array(TILE * TILE)
       for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
         const ch = rows[y]?.[x]
-        t[y * TILE + x] = ch && ch !== '.' && pic.colors[ch] ? P[pic.colors[ch]] : under ? under[y * TILE + x] : 0
+        t[y * TILE + x] = ch && ch !== '.' && pic.colors[ch] ? P[pic.colors[ch]] : under === 'clear' ? 255 : under ? under[y * TILE + x] : 0   // 'clear': 透明（255）のまま
       }
       return t
     }
@@ -277,7 +277,8 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       const st = SETS[bi]
       const ground = list(pic, 'ground', null)
       if (ground.length) st.ground = ground
-      for (const kind of ['deco', 'path', 'tree', 'rock', 'water']) { const l = list(pic, kind, st.ground[0]); if (l.length) st[kind] = l }
+      for (const kind of ['deco', 'path', 'water']) { const l = list(pic, kind, st.ground[0]); if (l.length) st[kind] = l }
+      for (const kind of ['tree', 'rock']) { const l = list(pic, kind, 'clear'); if (l.length) st[kind] = l }   // 木・岩は透明のまま（地面の上に、少しずらして描く）
       st.waterMs = pic.anims?.water?.ms?.[0] ?? 670
     }
     const cp = TILE_PIC.castle
@@ -296,18 +297,102 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       for (let i = 0; i < TILE; i++) {
         const xx = x + i
         if (xx < 0 || xx >= W) continue
-        fb[yy * W + xx] = tile[j * TILE + i]
+        const v = tile[j * TILE + i]
+        if (v !== 255) fb[yy * W + xx] = v      // 255 は透明
       }
+    }
+  }
+  // 境目（デュアルグリッド）: 地面を描いた後、マス目から半マスずらした位置に、まわり 4 マス（左上・右上・左下・右下）が
+  // 水（道）かどうかで決まる 16 通りの形を重ねる。形は角の値をなめらかにつないだもの（角が丸くなる）に、少しの揺らぎ。
+  // 中身は水・道の絵（世界の位置に合わせて読むので、つなぎ目が出ない）。水のふちは 1 ドットの明るい線
+  // MASK[種類][形] = 16×16 の 0（外）・1（中）・2（ふち）。形の番号 = 左上 8 + 右上 4 + 左下 2 + 右下 1
+  const EDGE_MASKS = {}
+  for (const [kind, jitter, wave] of [['water', 0.05, 0.07], ['path', 0.12, 0.05], ['ground', 0.22, 0.09]]) {
+    EDGE_MASKS[kind] = Array.from({ length: 16 }, (_, code) => {
+      const tl = (code >> 3) & 1, tr = (code >> 2) & 1, bl = (code >> 1) & 1, br = code & 1
+      const inside = (x, y) => {
+        if (x < 0 || y < 0 || x >= TILE || y >= TILE) return null
+        // 岸の線にゆるい波（1 マスで 1 周。となりのタイルとつながる）
+        const u0 = (x + 0.5) / TILE, v0 = (y + 0.5) / TILE
+        const u = u0 + wave * Math.sin(2 * Math.PI * v0 + 1), v = v0 + wave * Math.sin(2 * Math.PI * u0 + 2)
+        const val = tl * (1 - u) * (1 - v) + tr * u * (1 - v) + bl * (1 - u) * v + br * u * v
+        const n = ((hash(x * 7 + code, y * 13 + kind.length) & 255) / 255 - 0.5) * jitter
+        return val + n > 0.5
+      }
+      const m = new Uint8Array(TILE * TILE)
+      for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        if (!inside(x, y)) continue
+        const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inside(x + dx, y + dy) === false)
+        m[y * TILE + x] = edge ? 2 : 1
+      }
+      return m
+    })
+  }
+  const EDGE_BORDER = { [B.GRASS]: 'bl5', [B.FOREST]: 'bl5', [B.DESERT]: 'bl5', [B.SNOW]: 'white', [B.VOLCANO]: 'ye2' }
+  // 半マスずれた位置 (x, y) に、texture（16×16。世界の位置に合わせて半マスずらして読む）を mask の形で重ねる
+  function blitEdge(texture, mask, x, y, border) {
+    for (let j = 0; j < TILE; j++) {
+      const yy = y + j
+      if (yy < 0 || yy >= H) continue
+      for (let i = 0; i < TILE; i++) {
+        const m = mask[j * TILE + i]
+        if (!m) continue
+        const xx = x + i
+        if (xx < 0 || xx >= W) continue
+        fb[yy * W + xx] = m === 2 && border !== undefined ? border : texture[((j + 8) & 15) * TILE + ((i + 8) & 15)]
+      }
+    }
+  }
+  // マス目に乗らない小さな飾り（草むら、花、小石…）: 地面のマスに、ずれた位置で散らす（マス目の繰り返しを目立たなくする）。
+  // 地面の絵の色（いちばん暗い色・明るい色）から作るので、Pixel で地面を描き直しても合う。Pixel の bit1〜（16×16、透明の上に小さな絵）があればそれを使う
+  const lum = (i) => { const h = ALL_HEX[i] || '000000'; return parseInt(h.slice(0, 2), 16) * 0.3 + parseInt(h.slice(2, 4), 16) * 0.59 + parseInt(h.slice(4, 6), 16) * 0.11 }
+  const BITS = {}
+  for (const [bi, st] of Object.entries(SETS)) {
+    const count = {}
+    for (const v of st.ground[0]) count[v] = (count[v] || 0) + 1
+    const cols = Object.keys(count).map(Number).sort((a, b) => lum(a) - lum(b))
+    const darkest = cols[0], light = cols[cols.length - 1], A = BIOME_ART[bi]
+    const tuft = [[0, 0, darkest], [2, 0, darkest], [1, 1, darkest], [0, -1, light], [2, -1, light]]
+    const stone = [[0, 0, c('gy4')], [1, 0, c('gy4')], [0, -1, c('gy5')], [1, 1, darkest]]
+    const flower = (col) => [[0, 0, c(col)], [0, 1, darkest]]
+    const list = { [B.GRASS]: [tuft, tuft, tuft, flower(A.deco[0]), flower(A.deco[1]), flower(A.deco[2]), stone],
+      [B.FOREST]: [tuft, tuft, tuft, tuft, flower(A.deco[0]), stone],
+      [B.DESERT]: [[[0, 0, darkest], [1, 0, darkest]], stone, [[0, 0, light]], [[0, 0, darkest], [1, -1, darkest], [2, 0, darkest]]],
+      [B.SNOW]: [[[0, 0, c('bl4')]], [[0, 0, c('bl4')], [1, 1, c('bl4')]], stone, tuft],
+      [B.VOLCANO]: [[[0, 0, c('or1')], [1, 0, c('rd2')]], [[0, 0, c('rd2')]], stone, [[0, 0, c('or2')], [1, 1, c('rd2')], [2, 1, c('or1')]]] }
+    BITS[bi] = list[bi] ?? [tuft]
+  }
+  {
+    const TP = ART.TILE_PIC ?? {}, NAMES = { grass: B.GRASS, forest: B.FOREST, desert: B.DESERT, snow: B.SNOW, volcano: B.VOLCANO }
+    for (const [name, bi] of Object.entries(NAMES)) {
+      const pic = TP[name]
+      const own = pic ? Object.keys(pic.pics).filter((n) => /^bit\d+$/.test(n)) : []
+      if (own.length) BITS[bi] = own.map((n) => pic.pics[n].flatMap((row, y) => [...row].map((ch, x) => (ch !== '.' && pic.colors[ch] ? [x - 8, y - 8, P[pic.colors[ch]]] : null)).filter(Boolean)))
+    }
+  }
+  function drawBits(bi, tx, ty, sx, sy) {
+    const h = hash(tx * 3 + 11, ty * 5 + 7)
+    if (h % 100 >= 30) return                      // 3 割のマスに 1 つ
+    const list = BITS[bi]
+    if (!list) return
+    const bit = list[(h >>> 8) % list.length], ox = sx + 2 + ((h >>> 12) % 12), oy = sy + 3 + ((h >>> 16) % 11)
+    for (const [dx, dy, col] of bit) {
+      const x = ox + dx, y = oy + dy
+      if (x >= 0 && y >= 0 && x < W && y < H) fb[y * W + x] = col
     }
   }
   function drawMap(S, t) {
     const cx = S.cam.x, cy = S.cam.y
     const tx0 = Math.floor(cx / TILE), ty0 = Math.floor(cy / TILE)
+    const tiles = S.world.tiles, biome = S.world.biome
+    const at = (tx, ty) => (tx < 0 || ty < 0 || tx >= MW || ty >= MH ? -1 : tiles[ty * MW + tx])
+    const waterFrame = (st, tx, ty) => st.water[(Math.floor((t * 1000) / (st.waterMs ?? 670)) + tx + ty) % st.water.length]
+    // 1. 地面（水と道のマスにも、下に地面を描く）。魔王城はそのまま
     for (let ty = ty0; ty <= ty0 + VIEW_H / TILE + 1; ty++) {
       for (let tx = tx0; tx <= tx0 + VIEW_W / TILE + 1; tx++) {
         if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) continue
-        const k = S.world.tiles[ty * MW + tx]
-        const bi = S.world.biome[ty * MW + tx]
+        const k = tiles[ty * MW + tx]
+        const bi = biome[ty * MW + tx]
         const h = hash(tx, ty)
         const sx = tx * TILE - cx, sy = ty * TILE - cy
         if (bi === B.CASTLE) {
@@ -319,16 +404,60 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
         const st = SETS[bi] ?? SETS[B.GRASS]
         let tile
         switch (k) {
-          case T.TREE: tile = st.tree[h % st.tree.length]; break
-          case T.WATER: tile = st.water[(Math.floor((t * 1000) / (st.waterMs ?? 670)) + tx + ty) % st.water.length]; break
-          case T.ROCK: tile = st.rock[h % st.rock.length]; break
-          case T.PATH: tile = st.path[h % st.path.length]; break
+          case T.TREE: case T.ROCK: case T.WATER: case T.PATH: tile = st.ground[h % st.ground.length]; break   // 木・岩は 3 で、水・道は 2 で上に描く
           case T.DECO: tile = st.deco[h % st.deco.length]; break
           case T.WALL: tile = CASTLE_SET.wall; break
           case T.FLOOR: tile = CASTLE_SET.floor[(tx + ty) % CASTLE_SET.floor.length]; break
           default: tile = st.ground[h % st.ground.length]
         }
         blit(tile, sx, sy)
+        if (k === T.GROUND) drawBits(bi, tx, ty, sx, sy)
+      }
+    }
+    // 1.5 地域の境: 地面どうしも同じ形でつなぐ（決まった順に、その地域のマスの側を重ねる）。魔王城は除く
+    for (const b of [B.GRASS, B.FOREST, B.DESERT, B.SNOW, B.VOLCANO]) {
+      const st = SETS[b]
+      for (let ty = ty0 - 1; ty <= ty0 + VIEW_H / TILE + 1; ty++) {
+        for (let tx = tx0 - 1; tx <= tx0 + VIEW_W / TILE + 1; tx++) {
+          let code = 0, other = false
+          for (let i = 0; i < 4; i++) {
+            const x = tx + (i & 1), y = ty + (i >> 1)
+            if (x < 0 || y < 0 || x >= MW || y >= MH) continue
+            const bb = biome[y * MW + x]
+            if (bb === b) code |= 8 >> i
+            else if (bb !== B.CASTLE) other = true
+          }
+          if (!code || code === 15 || !other) continue
+          blitEdge(st.ground[hash(tx, ty) % st.ground.length], EDGE_MASKS.ground[code], tx * TILE + 8 - cx, ty * TILE + 8 - cy)
+        }
+      }
+    }
+    // 2. 境目: 道、その上に水。半マスずれた位置ごとに、まわり 4 マスで形を選ぶ（中身の絵は、その種類のマスの地域のもの）
+    for (const [kind, K] of [['path', T.PATH], ['water', T.WATER]]) {
+      for (let ty = ty0 - 1; ty <= ty0 + VIEW_H / TILE + 1; ty++) {
+        for (let tx = tx0 - 1; tx <= tx0 + VIEW_W / TILE + 1; tx++) {
+          const c4 = [[tx, ty], [tx + 1, ty], [tx, ty + 1], [tx + 1, ty + 1]]
+          let code = 0, src = null
+          c4.forEach(([x, y], i) => { if (at(x, y) === K) { code |= 8 >> i; src ??= [x, y] } })
+          if (!code) continue
+          const bi = biome[src[1] * MW + src[0]]
+          if (bi === B.CASTLE) continue
+          const st = SETS[bi] ?? SETS[B.GRASS]
+          const tex = kind === 'water' ? waterFrame(st, src[0], src[1]) : st.path[hash(src[0], src[1]) % st.path.length]
+          blitEdge(tex, EDGE_MASKS[kind][code], tx * TILE + 8 - cx, ty * TILE + 8 - cy, kind === 'water' && code !== 15 ? c(EDGE_BORDER[bi] ?? 'bl5') : undefined)
+        }
+      }
+    }
+    // 3. 木と岩（境目の上に）
+    for (let ty = ty0; ty <= ty0 + VIEW_H / TILE + 1; ty++) {
+      for (let tx = tx0; tx <= tx0 + VIEW_W / TILE + 1; tx++) {
+        const k = at(tx, ty)
+        if (k !== T.TREE && k !== T.ROCK) continue
+        const bi = biome[ty * MW + tx]
+        if (bi === B.CASTLE) continue
+        const st = SETS[bi] ?? SETS[B.GRASS], h = hash(tx, ty)
+        const j = hash(tx + 101, ty + 37), dx = (j % 5) - 2, dy = ((j >>> 4) % 3) - 1   // 木は少しずらす（整列して見えないように。通れない所はマスのまま）
+        blit(k === T.TREE ? st.tree[h % st.tree.length] : st.rock[h % st.rock.length], tx * TILE - cx + (k === T.TREE ? dx : 0), ty * TILE - cy + (k === T.TREE ? dy : 0))
       }
     }
   }

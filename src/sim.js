@@ -475,6 +475,7 @@ export function createSim(opts = {}) {
     if (Math.random() < 0.5) spark(u.x + rnd(-PRAY.r, PRAY.r) * 0.8, u.y + rnd(-PRAY.r, PRAY.r) * 0.5, 'gr5', 1, 12)
   }
   function hitFeel(stop, shake) {
+    S.leaderHits = (S.leaderHits ?? 0) + 1        // 操作キャラの攻撃が当たった（main.js が控えめな音を鳴らす）
     S.hitstop = Math.max(S.hitstop, stop)
     if (shake) { S.shakeT = 0.12; S.shakeAmp = Math.max(S.shakeT > 0 ? S.shakeAmp ?? 0 : 0, SWING.shake) }
   }

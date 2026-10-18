@@ -20,23 +20,28 @@ export const ENVELOPES = [
 ]
 
 // 効果音：[矩形波1, 矩形波2, 三角波, ノイズ]。peak は書き出すときの音の大きさ（0〜1）
+// 2026-10-18: 曲をリファインして小さくなったので、効果音を 2dB ほど（peak を 0.8 倍に）下げた
 export const SE = {
-  rescue: { peak: 0.7, tracks: [
+  rescue: { peak: 0.56, tracks: [
     't210 @1 v13 @v1 q8 o5 c16 e16 g16 >c8', '@2 v9 @v1 q8 o5 r16 c16 e16 g16 >c16', '', '',
   ] },
-  lost: { peak: 0.6, tracks: [
+  lost: { peak: 0.48, tracks: [
     't150 @2 v12 @v1 q8 o4 e8 c8 <a4', '', 'q8 o2 a4 f4', '',
   ] },
-  switch: { peak: 0.4, tracks: ['t240 @2 v11 @v7 q8 o5 g16 >c16', '', '', ''] },
-  levelup: { peak: 0.55, tracks: [
+  switch: { peak: 0.32, tracks: ['t240 @2 v11 @v7 q8 o5 g16 >c16', '', '', ''] },
+  levelup: { peak: 0.44, tracks: [
     't200 @1 v12 @v1 q8 o5 c16 e16 g16 >c16 e8', '@1 v8 @v1 q8 o4 r16 c16 e16 g16 >c8', '', '',
   ] },
-  win: { peak: 0.75, tracks: [
+  win: { peak: 0.6, tracks: [
     't170 @1 v13 @v0 q7 o5 c8 e8 g8 >c4 <g8 >c2', '@1 v10 @v0 q7 o4 e8 g8 >c8 e4 c8 e2', 'q6 o3 c8 c8 c8 c4 c8 c2', '',
   ] },
-  over: { peak: 0.7, tracks: [
+  over: { peak: 0.56, tracks: [
     't100 @2 v12 @v1 q8 o4 e4 d4 c4 <b2', '@1 v8 @v1 q8 o4 c4 <b4 a4 g+2', 'q8 o2 a4 g4 f4 e2', '',
   ] },
+  // 操作キャラの攻撃だけの、控えめな音（自律の仲間の攻撃では鳴らさない）
+  swing: { peak: 0.2, tracks: ['', '', '', 't200 @v7 l48 v10 o6 c o5 a+ g e c <a'] },              // 振る（剣・盾・盗賊・ハンマー）: 短いシュッ
+  shot: { peak: 0.18, tracks: ['t200 @0 @v7 l48 v9 o6 c <a f d', '', '', ''] },                  // 撃つ（弓・氷・ブーメラン・爆弾・雷・僧侶）: 細いピュッ
+  hit: { peak: 0.24, tracks: ['', '', 't240 l64 o3 c <g', 't240 @v2 l32 v12 o4 g'] },         // 当たった: 小さいトッ
 }
 
 // ---- 曲 ----

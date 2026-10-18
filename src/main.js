@@ -497,7 +497,8 @@ function readInput() {
 
 // --- ループ ---
 let last = performance.now()
-let prev = { rescued: 0, lost: 0, state: 'play', boss: false, bossHp: 0, leaderId: 0, leaderLv: 1 }
+let prev = { rescued: 0, lost: 0, state: 'play', boss: false, bossHp: 0, leaderId: 0, leaderLv: 1, swingT: undefined, hits: 0 }
+let lastHitSfx = 0
 function events() {
   if (S.rescued > prev.rescued) audio.sfx('rescue')
   if (S.lost > prev.lost) audio.sfx('lost')
@@ -509,7 +510,11 @@ function events() {
   const bossOn = S.boss && S.boss.aggro && S.boss.hp > 0
   if (bossOn && !prev.boss) audio.music('boss')
   if (S.leader && S.leader.id === prev.leaderId && S.leader.lvl > prev.leaderLv) audio.sfx('levelup')
-  prev = { rescued: S.rescued, lost: S.lost, state: S.state, boss: bossOn, leaderId: S.leader ? S.leader.id : 0, leaderLv: S.leader ? S.leader.lvl : 1 }
+  // 操作キャラの攻撃だけ、控えめな音: 振る・撃つ（攻撃した時刻 swingT が変わった）、当たった（同じ 1/20 秒には 1 回だけ）
+  const L = S.leader
+  if (L && L.id === prev.leaderId && L.swingT !== undefined && L.swingT !== prev.swingT) audio.sfx(['melee'].includes(JOBS[L.job].kind) ? 'swing' : 'shot')
+  if ((S.leaderHits ?? 0) > prev.hits && performance.now() - lastHitSfx > 50) { audio.sfx('hit'); lastHitSfx = performance.now() }
+  prev = { rescued: S.rescued, lost: S.lost, state: S.state, boss: bossOn, leaderId: S.leader ? S.leader.id : 0, leaderLv: S.leader ? S.leader.lvl : 1, swingT: L?.swingT, hits: S.leaderHits ?? 0 }
 }
 let frameAvg = 1 / 60
 function frame(now) {

@@ -13,15 +13,15 @@ import { ENVELOPES, SE, BGM } from './sounds.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const px = resolve(process.env.PX13H || join(here, '../../px13h'))
 const { Engine } = await import(join(px, 'tools/music/web/engine.js'))
-const { parseSong, compose, analyze, buildTracks } = await import(join(px, 'tools/music/web/song.js'))
+const { parseSong, compose, analyze, buildTracks, engineSong } = await import(join(px, 'tools/music/web/song.js'))
 const wasm = readFileSync(join(px, 'tools/music/web/engine.wasm'))
 const out = join(here, '../public/audio')
 mkdirSync(out, { recursive: true })
 const RATE = 48000
 
-async function render(tracks, { loop = false, seconds = 0, envelopes = ENVELOPES } = {}) {
+async function render(tracks, { loop = false, seconds = 0, envelopes = ENVELOPES, instruments = [], samples = [] } = {}) {
   const e = await Engine.load(wasm)
-  e.setSong({ mode: 0, tracks, envelopes })
+  e.setSong({ mode: 0, tracks, envelopes, instruments, samples })
   e.play()
   const chunks = []
   let n = 0
@@ -71,8 +71,8 @@ function loadSong(name) {
   const a = analyze(song, composed)
   const errors = [...song.errors, ...a.errors]
   if (errors.length) { console.error(`${name}.song:\n  ${errors.join('\n  ')}`); process.exit(1) }
-  const envelopes = song.envelopes ? ENVELOPES.map((e, i) => song.envelopes[i] ?? e) : ENVELOPES   // 書いていない番号は今までのもの
-  return { song, composed, a, envelopes, bars: composed.bars.length, tempo: song.tempo }
+  const { envelopes, instruments, samples } = engineSong(song, {}, ENVELOPES)   // 書いていない番号は今までのもの。音色（@i）と DPCM のサンプルも
+  return { song, composed, a, envelopes, instruments, samples, bars: composed.bars.length, tempo: song.tempo }
 }
 const tracksOf = (S, loop) => buildTracks(S.song, S.composed, S.a, -Infinity, Infinity, loop).tracks
 
@@ -80,7 +80,7 @@ const tracksOf = (S, loop) => buildTracks(S.song, S.composed, S.a, -Infinity, In
 async function renderLoop(S) {
   const t = (S.bars * 4 * 60) / S.tempo
   const period = Math.round(t * RATE)
-  const two = await render(tracksOf(S, true), { loop: true, seconds: (period * 2 + 2400) / RATE, envelopes: S.envelopes })
+  const two = await render(tracksOf(S, true), { loop: true, seconds: (period * 2 + 2400) / RATE, envelopes: S.envelopes, instruments: S.instruments, samples: S.samples })
   console.log(`1 周: 計算上 ${t.toFixed(3)} 秒`)
   return two.slice(period, period * 2)
 }
@@ -91,7 +91,7 @@ for (const [name, def] of Object.entries(BGM)) {
   if (!all && !want.includes(name)) continue
   const S = loadSong(name)
   if (def.loop) writeOgg(name, normalize(await renderLoop(S), def.peak))
-  else writeOgg(name, normalize(trimSilence(await render(tracksOf(S, false), { envelopes: S.envelopes })), def.peak))
+  else writeOgg(name, normalize(trimSilence(await render(tracksOf(S, false), { envelopes: S.envelopes, instruments: S.instruments, samples: S.samples })), def.peak))
 }
 for (const [name, def] of Object.entries(SE)) {
   if (!all && !want.includes(name)) continue

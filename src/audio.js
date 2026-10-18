@@ -1,6 +1,6 @@
 // 音：書き出した ogg（public/audio/）を再生するだけ（まだ音がないときは何もしない）
 const BASE = import.meta.env?.BASE_URL ?? './'
-const SFX = ['rescue', 'lost', 'win', 'over', 'switch', 'levelup']
+const SFX = ['rescue', 'lost', 'win', 'over', 'switch', 'levelup', 'swing', 'shot', 'hit']
 const MUSIC = ['field', 'boss', 'ending']
 
 function createAudio() {
