@@ -9,6 +9,8 @@ import { ENEMY_DATA, ENEMY_SIZE, ENEMY_ANIM, enemyTable } from './enemysprites.j
 import * as ART from './art.js'
 
 export const W = VIEW_W
+// 半透明の色（HUD と余白の絵だけで使う。表示側 main.js の PAL32 で、透けた黒・透けた白にする）。ボタンの下の世界が見える
+export const GLASS = 254, GLASS_HOT = 253
 export const H = VIEW_H
 
 // 画面のボタン（fb 座標）
@@ -18,13 +20,15 @@ export const NEXT_BTN = { x: 56, y: H - 26, w: 22, h: 22 }
 // 振るボタン（自分で振る職を操作しているときだけ出る）。r は見た目の半径
 export const SWING_BTN = { x: W - 30, y: H - 32, r: 22 }
 export const MINI = { x: W - 70, y: 4, w: 66, h: 50 }
-export const NEW_BTN = { x: W / 2 - 60, y: 148, w: 120, h: 22 }
-export const CONT_BTN = { x: W / 2 - 60, y: 176, w: 120, h: 22 }
+// タイトル: スロット 3 つと、選んだスロットの項目
+export const SLOT_BTNS = [0, 1, 2].map((i) => ({ x: W / 2 - 100, y: 96 + i * 32, w: 200, h: 28 }))
+export const slotItemBtn = (i) => ({ x: W / 2 - 70, y: 112 + i * 26, w: 140, h: 22 })
 // ポーズ画面: 下に並ぶボタンと、仲間の一覧のページ送り
 export const MENU_BTNS = [
-  { id: 'resume', label: 'RESUME', x: 100, y: H - 24, w: 70, h: 20 },
-  { id: 'sound', label: 'SOUND', x: 174, y: H - 24, w: 70, h: 20 },
-  { id: 'title', label: 'TITLE', x: 248, y: H - 24, w: 68, h: 20 },
+  { id: 'resume', label: 'RESUME', x: 96, y: H - 24, w: 54, h: 20 },
+  { id: 'save', label: 'SAVE', x: 152, y: H - 24, w: 52, h: 20 },
+  { id: 'sound', label: 'SOUND', x: 206, y: H - 24, w: 56, h: 20 },
+  { id: 'title', label: 'TITLE', x: 264, y: H - 24, w: 52, h: 20 },
 ]
 export const PAGE_PREV = { x: 4, y: H - 24, w: 20, h: 20 }
 export const PAGE_NEXT = { x: 70, y: H - 24, w: 20, h: 20 }
@@ -681,10 +685,18 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
         ringPx(x, y, r * 0.7, c('br4'), 0.6, true)
         if (k < 0.6) for (let i = 0; i < 8; i++) { const a = i * 0.785 + 0.3; lineThick(Math.round(x + Math.cos(a) * 5), Math.round(y + Math.sin(a) * 3), Math.round(x + Math.cos(a) * r * 0.5), Math.round(y + Math.sin(a) * r * 0.3), 1, c('br1')) }
       }
-      else if (f.k === 'stab') {                     // ナイフの突き: 体から前へ、細い白い線が伸びて消える
-        const ca = Math.cos(f.ang), sa = Math.sin(f.ang), r0 = 6 + f.r * 0.3 * k, r1 = 6 + f.r * Math.min(1, k * 2.5)
-        for (let r = r0; r <= r1; r++) px(Math.round(x + ca * r), Math.round(y + sa * r), r > r1 - 3 ? c('white') : c('gy5'))
-        px(Math.round(x + ca * r1 - sa), Math.round(y + sa * r1 + ca), c('gy6')); px(Math.round(x + ca * r1 + sa), Math.round(y + sa * r1 - ca), c('gy6'))
+      else if (f.k === 'stab') {                     // ナイフの突き: ナイフ（握り・つば・幅のある刃・とがった先）が前へ突き出て、後ろに短い残像
+        const ca = Math.cos(f.ang), sa = Math.sin(f.ang), tip = 8 + f.r * Math.min(1, k * 2.5)
+        const at = (r, side, col) => px(Math.round(x + ca * r - sa * side), Math.round(y + sa * r + ca * side), col)
+        if (k < 0.7) for (let r = 4; r < tip - 12; r++) if (r & 1) at(r, 0, c('gy4'))   // 残像
+        for (let r = tip - 14; r < tip - 9; r++) { at(r, 0, c('br3')); at(r, 1, c('br2')) }   // 握り
+        for (let sd = -2; sd <= 2; sd++) at(tip - 9, sd, c('gy6'))   // つば
+        for (let r = tip - 8; r <= tip; r++) {                       // 刃: 根元は 3 ドット幅、先へ細く
+          const w = r < tip - 5 ? 1 : r < tip - 1 ? 0.5 : 0
+          at(r, 0, c('white'))
+          if (w >= 0.5) at(r, -1, c('white'))
+          if (w >= 1) at(r, 1, c('gy5'))
+        }
       }
       else if (f.k === 'bash') {                     // 盾で押す: 「[」が太くなって前へ飛び出す
         const dir = [Math.cos(f.ang), Math.sin(f.ang)]
@@ -732,24 +744,19 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
   function drawMini(S, t) {
     if (!mini) buildMini(S)
     const ox = MINI.x + 1, oy = MINI.y + 1
-    rect(MINI.x, MINI.y, MINI.w, MINI.h, c('black'))
+    rect(MINI.x, MINI.y, MINI.w, MINI.h, GLASS)     // 枠と、まだ見ていない所は半透明
     for (let y = 0; y < mini.h; y++) {
       for (let x = 0; x < mini.w; x++) {
         const k = (y * 3 + 1) * MW + x * 3 + 1
         const seen = S.seen[k] | S.seen[k - 1] | S.seen[k + 1] | S.seen[k - MW] | S.seen[k + MW]
-        px(ox + x, oy + y, seen ? mini.base[y * mini.w + x] : c('ink'))
+        if (seen) px(ox + x, oy + y, mini.base[y * mini.w + x])
       }
     }
     const seenAt = (tx, ty) => S.seen[ty * MW + tx]
-    for (const cg of S.cages) {
-      if (cg.opened || !seenAt(cg.tx, cg.ty)) continue
-      rect(ox + Math.floor(cg.tx / 3) - 1, oy + Math.floor(cg.ty / 3) - 1, 2, 2, c('ye2'))
+    if (Math.floor(t * 2) & 1) for (const cg of S.cages) {   // まだ助けていない檻を全部、黄色の 1 ドットで点滅（助けた檻は出さない）
+      if (!cg.opened) px(ox + Math.floor(cg.tx / 3), oy + Math.floor(cg.ty / 3), c('ye2'))
     }
-    const bt = S.boss
-    if (bt && bt.hp > 0) {
-      const bx = Math.floor(bt.x / TILE), by = Math.floor(bt.y / TILE)
-      if (seenAt(bx, by) || Math.floor(t * 2) & 1) rect(ox + Math.floor(bx / 3) - 1, oy + Math.floor(by / 3) - 1, 3, 3, c('mag'))
-    }
+    // 魔王の居場所は出さない（2026-10-18。探す楽しみを残す）
     // いまの画面の範囲
     const vx0 = Math.floor(S.cam.x / TILE / 3), vy0 = Math.floor(S.cam.y / TILE / 3)
     const vw = Math.max(2, Math.round(VIEW_W / TILE / 3)), vh = Math.max(2, Math.round(VIEW_H / TILE / 3))
@@ -761,17 +768,37 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
   }
 
   // --- HUD ---
-  function drawButton(b, label, hot, sc = 2) {
-    rect(b.x, b.y, b.w, b.h, c('black'))
-    rect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, hot ? c('gy3') : c('gy1'))
-    rect(b.x + 1, b.y + 1, b.w - 2, 1, c('gy3'))
+  // glass: 半透明（ゲームの画面の上に乗るボタン）。ふだんは塗る（タイトル・ポーズなど、後ろが暗い画面）
+  function drawButton(b, label, hot, sc = 2, glass = false) {
+    if (glass) {
+      rect(b.x, b.y, b.w, b.h, hot ? GLASS_HOT : GLASS)
+      rect(b.x, b.y, b.w, 1, c('gy4'))
+    } else {
+      rect(b.x, b.y, b.w, b.h, c('black'))
+      rect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, hot ? c('gy3') : c('gy1'))
+      rect(b.x + 1, b.y + 1, b.w - 2, 1, c('gy3'))
+    }
     text(label, b.x + b.w / 2 - textW(label, sc) / 2, b.y + b.h / 2 - (sc * 5) / 2, c('gy6'), sc)
   }
-  // 半透明の代わりに市松で塗った丸いボタン。振った直後は明るくする
-  function drawSwingBtn(S, L) {
-    const { x, y, r } = SWING_BTN
+  // 半透明の丸いボタン。振った直後は明るくする
+  // ポーズ・前・次のボタン。ox, oy: ずらす分（余白の絵に描くとき）
+  // glass: 画面の上では半透明、余白（後ろが黒い）では塗る
+  function drawNavBtns(ox, oy, glass = true) {
+    const at = (b) => ({ ...b, x: b.x + ox, y: b.y + oy })
+    const sc = PREV_BTN.w >= 32 ? 3 : 2               // 大きいボタン（スマホの余白）は、字と線も太く
+    drawButton(at(PREV_BTN), '<', false, sc, glass)
+    drawButton(at(NEXT_BTN), '>', false, sc, glass)
+    const pb = at(PAUSE_BTN)
+    drawButton(pb, '', false, sc, glass)
+    const m = Math.round(pb.w * 0.27), th = sc, gap = Math.round((pb.h - 2 * m - th) / 2)
+    for (let i = 0; i < 3; i++) rect(pb.x + m, pb.y + m + i * gap, pb.w - 2 * m, th, c('gy6'))   // ハンバーガー（三本線）
+  }
+  // b: ボタンの場所（ふだんは画面の右下。余白に出すときは余白の絵の座標）
+  function drawSwingBtn(S, L, b = SWING_BTN) {
+    const { x, y, r } = b
     const hot = S.t - (L.swingT ?? -9) < 0.1
-    ditherDisc(x, y, r, hot ? c('white') : c('gy4'), 0)
+    if (b.solid) disc(x, y, r, hot ? c('gy3') : c('gy1'))   // 余白（後ろが黒い）では透かさない
+    else disc(x, y, r, hot ? GLASS_HOT : GLASS)     // 画面の上では半透明（網掛けをやめた。2026-10-18）
     ringPx(x, y, r, hot ? c('white') : c('gy5'), 1)
     const col = hot ? c('ye3') : c('white')
     if (JOBS[L.job].heavy) {                         // ハンマーの印
@@ -791,14 +818,32 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       lineThick(x + 1, y + 1, x - 6, y + 8, 2, cc)
       return
     }
-    if (JOBS[L.job].kind === 'magic') {              // 氷術師の印（雪の結晶）
-      for (let i = 0; i < 3; i++) { const a = (i * Math.PI) / 3; lineThick(Math.round(x - Math.cos(a) * 8), Math.round(y - Math.sin(a) * 8), Math.round(x + Math.cos(a) * 8), Math.round(y + Math.sin(a) * 8), 1, col) }
+    if (JOBS[L.job].kind === 'magic') {              // 氷術師の印（つらら）: 横棒から、長さの違うつららが 3 本下がる（ちょん押しで撃つのがつらら）
+      rect(x - 9, y - 8, 19, 2, col)                // 上の横棒
+      for (const [cx, len] of [[-7, 9], [0, 14], [7, 7]]) {   // 3 本のつらら: 幅 5 から先へ細く、とがる
+        for (let r = 0; r < len; r++) {
+          const half = Math.max(0, Math.round(2 * (1 - r / (len - 1))))
+          rect(x + cx - half, y - 6 + r, half * 2 + 1, 1, col)
+        }
+      }
       return
     }
-    if (JOBS[L.job].backstab) {                      // 盗賊の印（ナイフ）
-      lineThick(x - 7, y + 7, x + 5, y - 5, 2, col)
-      lineThick(x + 5, y - 5, x + 8, y - 8, 1, col)
-      lineThick(x - 8, y + 3, x - 3, y + 8, 1, col)
+    if (JOBS[L.job].backstab) {                      // 盗賊の印（ナイフ）: 幅のある短い刃と、とがった先、つば、太い握り（形だけで見せる）
+      const KNIFE = [
+        '...........B',
+        '..........BB',
+        '.........BBb',
+        '........BBb.',
+        '.......BBb..',
+        '......BBb...',
+        '..g..BBb....',
+        '...gBBb.....',
+        '...hgb......',
+        '..hhhg......',
+        '.hhh..g.....',
+        'hhh.........',
+      ]
+      KNIFE.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') px(x - 6 + i, y - 6 + j, col) })   // ほかの職の印と同じく 1 色
       return
     }
     if (JOBS[L.job].kind === 'heal') {               // 僧侶の印（十字）
@@ -837,23 +882,22 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
   }
   function drawHud(S, ui, t) {
     const L = S.leader
-    shadowText(`RESCUED ${S.rescued}/${S.total}`, 4, 4, c('ye3'), 1)
+    if (S.nightmare) shadowText(`NIGHTMARE ${fmtTime(S.t)}`, 4, 4, c('rd3'), 1)   // ナイトメアは耐えた時間
+    else shadowText(`RESCUED ${S.rescued}/${S.total}`, 4, 4, c('ye3'), 1)
     shadowText(`ALLIES ${S.allies.length}`, 4, 12, c('white'), 1)
     const J = JOBS[L.job]
     const pw = 116, px0 = Math.round((W - pw) / 2), py0 = H - 29
-    rect(px0, py0, pw, 25, c('black'))
-    rect(px0 + 1, py0 + 1, pw - 2, 23, c('gy1'))
-    text(`${L.name} ${J.label}`, px0 + 5, py0 + 4, c('white'), 1)
+    rect(px0, py0, pw, 25, GLASS)                  // 名前の欄は半透明
+
+    text(L.name, px0 + 5, py0 + 4, c('white'), 1)
+    text(J.label, px0 + 5 + textW(L.name, 1) + 4, py0 + 4, c('gy5'), 1)   // 職は薄く（ポーズの一覧と同じ）
     text(`LV${L.lvl}`, px0 + pw - 5 - textW(`LV${L.lvl}`, 1), py0 + 4, c('ye2'), 1)
     rect(px0 + 5, py0 + 12, pw - 10, 5, c('black'))
     rect(px0 + 6, py0 + 13, Math.max(0, Math.round(((pw - 12) * L.hp) / L.maxhp)), 3, L.hp < L.maxhp * 0.35 ? c('rd3') : c('lime'))
     rect(px0 + 5, py0 + 18, pw - 10, 3, c('black'))
     if (L.lvl < MAX_LV) rect(px0 + 6, py0 + 19, Math.round(((pw - 12) * L.xp) / xpNeed(L.lvl)), 1, c('bl4'))
-    drawButton(PREV_BTN, '<')
-    drawButton(NEXT_BTN, '>')
-    drawButton(PAUSE_BTN, '', false)
-    for (let i = 0; i < 3; i++) rect(PAUSE_BTN.x + 6, PAUSE_BTN.y + 6 + i * 4, PAUSE_BTN.w - 12, 2, c('gy6'))   // ハンバーガー（三本線）
-    if (S.isManual?.(L)) drawSwingBtn(S, L)
+    if (!ui.pad) drawNavBtns(0, 0)                  // 余白があるときは、余白に出す（drawPad）
+    if (S.isManual?.(L) && !ui.pad) drawSwingBtn(S, L)   // 余白があるときは、余白に出す（drawPad）
     drawMini(S, t)
     // ボスの体力
     const b = S.boss
@@ -888,15 +932,36 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     const title = 'GUNZO'
     const sc = 6
     const x = W / 2 - textW(title, sc) / 2
-    text(title, x + 2, 32 + 2, c('black'), sc)
-    text(title, x, 32, c('ye2'), sc)
+    text(title, x + 2, 24 + 2, c('black'), sc)
+    text(title, x, 24, c('ye2'), sc)
     const sub = '99 FRIENDS - 100 HEROES'
-    text(sub, W / 2 - textW(sub, 1) / 2, 84, c('white'), 1)
-    const lines = ['DRAG OR WASD: MOVE', 'SPACE/Z OR BUTTON: SWING', 'TAP A FRIEND: SWITCH', 'FREE THEM ALL. DEFEAT THE DEMON KING.']
-    lines.forEach((l, i) => text(l, W / 2 - textW(l, 1) / 2, 104 + i * 10, c('gy5'), 1))
-    drawButton(NEW_BTN, 'NEW GAME', ui.hot === 'new')
-    if (ui.hasSave) drawButton(CONT_BTN, 'CONTINUE', ui.hot === 'cont')
-    if (ui.hasSave) text(ui.saveInfo || '', W / 2 - textW(ui.saveInfo || '', 1) / 2, 206, c('gy4'), 1)
+    text(sub, W / 2 - textW(sub, 1) / 2, 72, c('white'), 1)
+    if (ui.slotMenu) {                              // 選んだスロットの項目
+      const o = ui.slots[ui.slotSel - 1]
+      const h = `SLOT ${o.n}`
+      text(h, W / 2 - textW(h, 2) / 2, 92, c('ye3'), 2)
+      ui.slotMenu.forEach((it, i) => {
+        const b = slotItemBtn(i)
+        drawButton(b, it.label, false, 1)
+        if (it.id === 'delete' && ui.delArm) text(it.label, b.x + b.w / 2 - textW(it.label, 1) / 2, b.y + b.h / 2 - 2, c('rd3'), 1)
+        if (it.id === 'nightmare') text(it.label, b.x + b.w / 2 - textW(it.label, 1) / 2, b.y + b.h / 2 - 2, c('rd3'), 1)
+      })
+    } else {
+      ui.slots.forEach((o, i) => {
+        const b = SLOT_BTNS[i]
+        rect(b.x, b.y, b.w, b.h, c('black'))
+        rect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, o.cleared ? c('bl1') : c('gy1'))
+        rect(b.x + 1, b.y + 1, b.w - 2, 1, c('gy3'))
+        text(String(o.n), b.x + 6, b.y + 9, c('ye2'), 2)
+        if (o.empty && !o.suspended) text('NEW GAME', b.x + 24, b.y + 11, c('gy5'), 1)
+        else o.lines.forEach((l, k) => l && text(l, b.x + 24, b.y + 6 + k * 9, k === 1 && o.suspended ? c('ye3') : k === 1 && o.cleared ? c('rd3') : c('white'), 1))
+        if (o.cleared) text('*', b.x + b.w - 10, b.y + 6, c('ye3'), 1)
+      })
+      const rec = [ui.best ? `BEST CLEAR ${fmtTime(ui.best)}` : '', ui.nmBest ? `NIGHTMARE ${fmtTime(ui.nmBest)}` : ''].filter(Boolean).join('   ')
+      if (rec) text(rec, W / 2 - textW(rec, 1) / 2, 196, c('gy5'), 1)
+      const tip = 'TAP A SLOT (KEYS 1 2 3)'
+      text(tip, W / 2 - textW(tip, 1) / 2, 210, c('gy4'), 1)
+    }
   }
   // ポーズ: 助けた仲間の一覧（歩く絵・名前・職・今のレベル・次のレベルまでの経験値）。押すとその仲間に切り替わる
   function drawPause(S, ui, t) {
@@ -937,15 +1002,34 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       const pg = `${page + 1}/${pages}`
       text(pg, (PAGE_PREV.x + PAGE_PREV.w + PAGE_NEXT.x) / 2 - textW(pg, 1) / 2, H - 16, c('white'), 1)
     }
-    for (const b of MENU_BTNS) drawButton(b, b.id === 'sound' ? (ui.sound ? 'SOUND ON' : 'SOUND OFF') : b.label, false, 1)
+    for (const b of MENU_BTNS) {
+      if (b.id === 'save' && !ui.canSave) {        // 戦いの最中・ナイトメアでは押せない（灰色）
+        rect(b.x, b.y, b.w, b.h, c('black')); rect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, c('gy1'))
+        text(b.label, b.x + b.w / 2 - textW(b.label, 1) / 2, b.y + b.h / 2 - 2, c('gy3'), 1)
+        continue
+      }
+      drawButton(b, b.id === 'sound' ? (ui.sound ? 'SOUND ON' : 'SOUND OFF') : b.label, b.id === 'save' && ui.savedFlash > 0, 1)
+    }
+    const note = ui.savedFlash > 0 ? 'SAVED!' : !ui.canSave && !S.nightmare && ui.saveNote ? `${ui.saveNote} - CAN'T SAVE IN BATTLE` : ui.saveNote
+    if (note) text(note, 152, H - 31, ui.savedFlash > 0 ? c('ye3') : c('gy4'), 1)
   }
   function drawOver(S, ui, t) {
     overlayDark()
+    if (S.nightmare) {                              // ナイトメアの終わり: 耐えた秒
+      const s = 'NIGHTMARE OVER'
+      text(s, W / 2 - textW(s, 3) / 2, 50, c('rd3'), 3)
+      const tm = `SURVIVED ${fmtTime(S.t)}`
+      text(tm, W / 2 - textW(tm, 2) / 2, 86, c('white'), 2)
+      const rows = [S.nmNewBest ? 'NEW RECORD!' : S.nmBestAll ? `BEST ${fmtTime(Math.max(S.nmBestAll, S.t))}` : '', `KILLS ${S.kills}  DEMON KINGS ${S.nmBosses ?? 0}`, 'LEVELS GAINED ARE KEPT']
+      rows.forEach((l, i) => l && text(l, W / 2 - textW(l, 1) / 2, 112 + i * 12, i === 0 && S.nmNewBest ? c('ye3') : c('white'), 1))
+      if (Math.floor(t * 2) % 2 === 0) text('TAP TO RETURN TO TITLE', W / 2 - textW('TAP TO RETURN TO TITLE', 1) / 2, 170, c('gy5'), 1)
+      return
+    }
     const s = 'ALL FALLEN'
     text(s, W / 2 - textW(s, 3) / 2, 70, c('rd3'), 3)
     const r = `RESCUED ${S.rescued}/${S.total}  LOST ${S.lost}  KILLS ${S.kills}`
     text(r, W / 2 - textW(r, 1) / 2, 108, c('white'), 1)
-    const m = ui.hasSave ? 'TAP TO CONTINUE FROM SAVE' : 'TAP TO RETRY'
+    const m = 'TAP TO CONTINUE FROM SAVE'
     if (Math.floor(t * 2) % 2 === 0) text(m, W / 2 - textW(m, 1) / 2, 140, c('white'), 1)
   }
   function drawWin(S, t) {
@@ -960,7 +1044,8 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     text(title, W / 2 - textW(title, 2) / 2, 66, perfect || solo ? c('ye3') : c('white'), 2)
     const rows = [`TIME ${fmtTime(S.t)}${S.newBest ? '  NEW RECORD!' : S.best ? `  (BEST ${fmtTime(S.best)})` : ''}`, `RESCUED ${S.rescued}/${S.total}`, `LOST ${S.lost}`, `ALIVE ${S.allies.length}`, `KILLS ${S.kills}`]   // クリア時間（早解き）
     rows.forEach((l, i) => text(l, W / 2 - textW(l, 1) / 2, 100 + i * 12, c('white'), 1))
-    if (Math.floor(t * 2) % 2 === 0) text('TAP TO RETURN TO TITLE', W / 2 - textW('TAP TO RETURN TO TITLE', 1) / 2, 176, c('gy5'), 1)
+    text('NIGHTMARE MODE UNLOCKED', W / 2 - textW('NIGHTMARE MODE UNLOCKED', 1) / 2, 164, c('rd3'), 1)
+    if (Math.floor(t * 2) % 2 === 0) text('TAP TO RETURN TO TITLE', W / 2 - textW('TAP TO RETURN TO TITLE', 1) / 2, 180, c('gy5'), 1)
   }
 
   // --- 1フレーム ---
@@ -1065,5 +1150,22 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     else if (S.state === 'win') drawWin(S, t)
   }
 
-  return { draw, drawMap, drawFx, drawProj, text, rect, px, tileSets: () => ({ SETS, CASTLE_SET }) }   // tileSets: タイルの絵（tools/pixel.mjs が下書きに書き出す）
+  // 画面の外の余白（スマホ）: 移動のスティックと振るボタン。fb は余白の絵（画面全体）、ui.pad の座標はその上のドット
+  function drawPad(S, ui, t) {
+    fb.fill(255)
+    const P = ui.pad
+    if (!P || ui.screen !== 'play' || ui.paused || S.state !== 'play' || !S.leader) return
+    const st = ui.padStick
+    if (st) {
+      ringPx(Math.round(st.ax + P.ox), Math.round(st.ay + P.oy), 16, c('gy5'), 1)
+      disc(Math.round(st.x + P.ox), Math.round(st.y + P.oy), 5, c('gy6'))
+    } else if (P.stick) {                           // 触っていないとき: 移動できる場所の目印
+      ringPx(P.stick.x + P.ox, P.stick.y + P.oy, 16, c('gy2'), 1)
+      disc(P.stick.x + P.ox, P.stick.y + P.oy, 3, c('gy2'))
+    }
+    if (S.isManual?.(S.leader)) drawSwingBtn(S, S.leader, { x: SWING_BTN.x + P.ox, y: SWING_BTN.y + P.oy, r: SWING_BTN.r, solid: true })
+    drawNavBtns(P.ox, P.oy, false)
+  }
+
+  return { draw, drawPad, drawMap, drawFx, drawProj, text, rect, px, tileSets: () => ({ SETS, CASTLE_SET }) }   // tileSets: タイルの絵（tools/pixel.mjs が下書きに書き出す）
 }

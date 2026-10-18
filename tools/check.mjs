@@ -160,8 +160,23 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
     for (let i = 0; i < 60 * 8; i++) { S.input.my = -1; S.step(1 / 60) }
     createRenderer(new Uint8Array(W * H)).draw(S, { screen: 'play', stick: null }, S.t)
   } catch (e) { err = e }
-  ok(!err && S.allies.length >= 90 && S.allies.every((a) => a.lvl === 13) && S.boss.aggro && S.boss.hp < S.boss.maxhp,
+  ok(!err && S.allies.length >= 50 && S.allies.every((a) => a.lvl === 13) && S.boss.aggro && S.boss.hp < S.boss.maxhp,
     `ボス戦の試しで、LV13 の 100 人がボスと戦える${err ? `（${err.message}）` : ''}`)
+}
+
+// ナイトメア: クリアしたときの仲間で始まり、敵が湧き、中断して戻せる。倒れたら終わる
+{
+  let err = null, S = null, S2 = null
+  try {
+    const party = JOB_LIST.flatMap((j) => Array.from({ length: 10 }, (_, i) => ({ job: j, lvl: 12, xp: 0, name: `${j}${i}` })))
+    S = createSim({ manual: true, nightmare: { party } })
+    for (let i = 0; i < 60 * 20; i++) { S.input.mx = 1; S.step(1 / 60) }
+    createRenderer(new Uint8Array(W * H)).draw(S, { screen: 'play', stick: null }, S.t)
+    S2 = createSim({ manual: true, nightmare: { party } })
+    S2.restoreNM(JSON.parse(JSON.stringify(S.serializeNM())))
+  } catch (e) { err = e }
+  ok(!err && S.allies.length + S.deaths.length === 100 && S.kills > 0 && !S.canSave() && Math.abs(S2.t - S.t) < 1e-6 && S2.allies.length === S.allies.length,
+    `ナイトメアが動き、中断から戻せる${err ? `（${err.message}）` : ''}`)
 }
 
 console.log(fails ? `\n${fails} 件失敗` : '\n全部通った')

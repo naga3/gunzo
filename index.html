@@ -6,16 +6,19 @@
 <title>GUNZO</title>
 <link rel="icon" href="data:,">
 <style>
-  html, body { margin: 0; height: 100%; background: #0d0b14; overflow: hidden; }
+  html, body { margin: 0; height: 100%; background: #0d0b14; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
   body { display: flex; align-items: center; justify-content: center; }
   canvas { image-rendering: pixelated; touch-action: none; user-select: none; -webkit-user-select: none; }
   /* 世界（1 ドット大きい）を、カメラの半端な分だけずらして見せる枠。HUD（#c）はその上に重ねる */
   #view { position: relative; overflow: hidden; }
   #world { position: absolute; left: 0; top: 0; pointer-events: none; }
   #c { position: absolute; left: 0; top: 0; }
+  /* 画面の外の余白（スマホ）: 移動のスティックと振るボタンを描く。画面全体に敷き、ゲームの画面はその上に重なる */
+  #pad { position: fixed; left: 0; top: 0; pointer-events: none; }
 </style>
 </head>
 <body>
+<canvas id="pad"></canvas>
 <div id="view"><canvas id="world"></canvas><canvas id="c"></canvas></div>
 <script type="module" src="/src/main.js"></script>
 </body>

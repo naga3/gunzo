@@ -147,6 +147,9 @@ export const STAB = { r: 18, half: 0.8, cd: 0.18, back: 3, bossBack: 2, stop: 0.
 // ボスは dur 秒動けず、その間は全員の与えるダメージが mul 倍。終わってから cool 秒は、次の隙はできない（ふつうのよろけだけ）
 // lead: ボスは操作キャラを狙いやすい（距離をこの倍に見る）。leadRain: ボスの雨のうち、操作キャラに落ちる数
 export const BREAK = { dur: 3, mul: 2.5, cool: 4, lead: 0.5, leadRain: 2 }
+// ナイトメア（クリアのあと）: 敵の体力は grow 秒ごとに e 倍（攻撃はその dmgPow 乗、経験値は xpPow 乗の xpMul 倍）。tierEvery 秒ごとに先の地域の敵が混ざる
+// 湧く数は 1 秒に rate0 体から、1 秒ごとに rateUp ずつ増え、rateMax まで。同時に cap 体まで。far より離れた敵は消える。bossEvery 秒ごとに魔王（強さ bossMul 倍）
+export const NIGHTMARE = { grow: 150, dmgPow: 1, xpPow: 1, xpMul: 3, tierEvery: 60, rate0: 3, rateUp: 0.03, rateMax: 30, cap: 500, far: 420, bossEvery: 150, bossMul: 0.3 }
 export const FREEZE = { autoDur: 1.0, bossCool: 4, bossShatter: 1.5, range: 150, charge: 0.7, dur: 2.5, bossDur: 1.2, shatter: 2.5, icicle: 1.3, icicleSpeed: 260, boltSpeed: 300, cd: 0.35, slow: 0.6, stop: 0.03 }
 // 操作キャラが自分で投げるブーメラン。戻ってくるまで次は投げられない。ちょん押しは近くの敵の所（+ over）で折り返す、長押しは押した長さで飛ぶ距離が min〜max に伸びる（charge 秒で最大）
 // 行きと帰りの両方で、通り道の敵に当たる（攻撃力の mul 倍）。帰りは投げた人を追いかける。狙っている間は歩く速さ slow 倍

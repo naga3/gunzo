@@ -2,7 +2,7 @@
 import { TILE, MW, MH, T, B, solidTile, generateWorld, createFlow, CASTLE } from './world.js'
 import { ENEMY_SIZE } from './enemysprites.js'
 import {
-  HP_MUL, DMG_MUL, DIFFS, DIFF_RAMP, ARMOR, JOBS, JOB_LIST, JOB_COUNTS, ENEMIES, POOLS, BOSS, MAX_LV, xpNeed, lvMul, NAMES, SWING, SHOOT, GUARD, THROW, PRAY, STAB, FREEZE, BREAK, BOOMER, CHAIN, SMASH, MASS,
+  HP_MUL, DMG_MUL, DIFFS, DIFF_RAMP, ARMOR, JOBS, JOB_LIST, JOB_COUNTS, ENEMIES, POOLS, BOSS, MAX_LV, xpNeed, lvMul, NAMES, SWING, SHOOT, GUARD, THROW, PRAY, STAB, FREEZE, BREAK, NIGHTMARE, BOOMER, CHAIN, SMASH, MASS,
 } from './data.js'
 
 export const VIEW_W = 320
@@ -26,6 +26,7 @@ export function createSim(opts = {}) {
   // manual: 操作キャラ（manual の職）は自分で振る。ボットや確認では渡さず、今までどおり自動で攻撃する
   const MANUAL = opts.manual ?? false
   const FIELD = opts.test === true || opts.test === 'field'   // 試し場（敵が湧き続ける）。'boss' はボス戦の試し
+  const NM = !!opts.nightmare                     // ナイトメア（クリアのあと。敵が湧き続け、だんだん強くなる。何秒耐えたか）
   const S = {
     world, flow, t: 0, state: 'play', winT: 0,
     allies: [], enemies: [], cages: [], camps: [], projs: [], blasts: [], fx: [], hazards: [],
@@ -62,7 +63,8 @@ export function createSim(opts = {}) {
   }
   const onScreen = (o) => o.x > S.cam.x - 8 && o.x < S.cam.x + VIEW_W + 8 && o.y > S.cam.y - 8 && o.y < S.cam.y + VIEW_H + 8
   const arena = world.arena
-  const inArena = (o) => o.x >= arena.x0 && o.x <= arena.x1 && o.y >= arena.y0 && o.y <= arena.y1
+  // ボスの戦場: ふだんは魔王城の闘技場。ナイトメアでは操作キャラのまわり（ボスはどこにでも現れる）
+  const inArena = (o) => NM ? !!S.leader && Math.hypot(o.x - S.leader.x, o.y - S.leader.y) < 240 : o.x >= arena.x0 && o.x <= arena.x1 && o.y >= arena.y0 && o.y <= arena.y1
 
   // --- 演出 ---
   const FXMAX = 600
@@ -162,7 +164,7 @@ export function createSim(opts = {}) {
     if (u.hp <= 0) {
       u.alive = false
       S.lost++
-      S.deaths.push({ id: u.id, job: u.job, lvl: u.lvl, name: u.name, t: S.t, x: u.x, y: u.y, by: by ?? '?', maxhp: u.maxhp })
+      S.deaths.push({ id: u.id, pid: u.pid, xp: u.xp, job: u.job, lvl: u.lvl, name: u.name, t: S.t, x: u.x, y: u.y, by: by ?? '?', maxhp: u.maxhp })
       spark(u.x, u.y - 4, 'gy6', 10, 60)
       ring(u.x, u.y, 'gy4', 14, 0.35)
     }
@@ -1576,11 +1578,12 @@ export function createSim(opts = {}) {
   }
 
   // --- ラスボス ---
-  function spawnBoss() {
-    const sc = (a) => ({ ...a, dmg: Math.round(a.dmg * DIFF.bossDmg), ...(a.wind ? { wind: a.wind * DIFF.wind } : {}) })
-    const D = { ...BOSS, hpBase: BOSS.hpBase * DIFF.boss, hpPerAlly: BOSS.hpPerAlly * DIFF.boss, slam: sc(BOSS.slam), fan: sc(BOSS.fan), charge: sc(BOSS.charge), rain: sc(BOSS.rain),
-      shape: 'boss', atk: 'boss', xp: 3000, reach: 30, aggro: 230, wind: 0, cd: 0, dmg: 0, cost: 0 }
-    const e = newEnemy('boss', world.boss.x, world.boss.y, -2, D)
+  // x, y: 現れる場所（ふだんは魔王城の玉座）。mul: 体力と攻撃の倍率（ナイトメアで強くなる）。xpMul: 経験値の倍率
+  function spawnBoss(x = world.boss.x, y = world.boss.y, mul = 1, xpMul = 1) {
+    const sc = (a) => ({ ...a, dmg: Math.round(a.dmg * DIFF.bossDmg * mul), ...(a.wind ? { wind: a.wind * DIFF.wind } : {}) })
+    const D = { ...BOSS, hpBase: BOSS.hpBase * DIFF.boss * mul, hpPerAlly: BOSS.hpPerAlly * DIFF.boss * mul, slam: sc(BOSS.slam), fan: sc(BOSS.fan), charge: sc(BOSS.charge), rain: sc(BOSS.rain),
+      shape: 'boss', atk: 'boss', xp: 3000 * xpMul, reach: 30, aggro: 230, wind: 0, cd: 0, dmg: 0, cost: 0 }
+    const e = newEnemy('boss', x, y, -2, D)
     e.rad = 24
     e.pstate = 'move'
     e.alliesAtStart = 100
@@ -1700,6 +1703,13 @@ export function createSim(opts = {}) {
     if (b.pstate === 'recover') { if (b.pT <= 0) { b.pstate = 'move'; b.pT = (1.0 + Math.random() * 0.8) * pf } }
   }
   function bossDied(b) {
+    if (NM) {                                      // ナイトメア: 勝ちにはならない。次の魔王が来るまで少し休める
+      S.nmBosses = (S.nmBosses ?? 0) + 1
+      S.boss = null
+      S.banner = 'DEMON KING FALLS'
+      S.bannerT = 3
+      return
+    }
     S.state = 'win'
     S.winT = 0
     for (const e of S.enemies) if (e !== b && e.hp > 0) { e.hp = 0 }
@@ -1907,7 +1917,6 @@ export function createSim(opts = {}) {
 
   function step(dt) {
     dt = Math.min(dt, 0.05)
-    S.t += dt
     if (S.state === 'win') {
       S.winT += dt
       for (const f of S.fx) { f.t += dt; f.x += f.vx * dt; f.y += f.vy * dt; if (f.k === 'spark') f.vy += 120 * dt }
@@ -1916,6 +1925,7 @@ export function createSim(opts = {}) {
       return
     }
     if (S.state !== 'play') return
+    S.t += dt                                      // 時間は遊んでいる間だけ進む（クリア時間・ナイトメアの耐えた秒が、終わったあとに増えないように）
     // ヒットストップ：当たった瞬間、少しだけ全部を止める
     if (S.hitstop > 0) { S.hitstop -= dt; return }
     S.shakeT -= dt
@@ -1997,17 +2007,101 @@ export function createSim(opts = {}) {
   })
   S.total = S.cages.length
   S.camps = world.camps
-  world.enemies.forEach((en, i) => { const e = newEnemy(en.kind, en.x, en.y, en.camp); e.idx = i })
-  spawnBoss()
-  S.leader = newAlly(opts.hero ?? 'sword', world.start.x, world.start.y) // 主人公の職（試し場で変えられる）
-  S.leader.name = 'HERO'
+  if (!NM) {
+    world.enemies.forEach((en, i) => { const e = newEnemy(en.kind, en.x, en.y, en.camp); e.idx = i })
+    spawnBoss()
+    S.leader = newAlly(opts.hero ?? 'sword', world.start.x, world.start.y) // 主人公の職（試し場で変えられる）
+    S.leader.name = 'HERO'
+  } else nmParty()
+
   updateCamera()
   refreshFlow()
 
   // --- 試し場（createSim({ test: true })）：開始地点のまわりに、いろいろな敵を並べる ---
   // 強さは地域の倍率をかけない素の値。倒されたら、しばらくして同じ場所に出直す。誰も倒れない
   // 味方 99 人（本番と同じ職の人数）を連れて始まり、画面のふちから敵が湧き続ける
-  const playground = FIELD ? makePlayground() : opts.test === 'boss' ? makeBossTest() : null
+  const playground = NM ? makeNightmare() : FIELD ? makePlayground() : opts.test === 'boss' ? makeBossTest() : null
+  // ナイトメア（createSim({ nightmare: { party } })）: クリアしたときの仲間全員（倒れた仲間も戻る）で、開始地点から。
+  // 敵は画面のふちから湧き続け、時間とともに強く・多く・先の地域の種類になる。NM.bossEvery 秒ごとに魔王も来る。全員倒れたら終わり（S.t が耐えた秒数）
+  // party: [{ job, lvl, xp, name }]。仲間の pid は party の番号（終わったら、上がったレベルを持ち帰る）
+  function nmParty() {
+    const P = opts.nightmare.party
+    const sx = world.start.x, sy = world.start.y
+    for (const c of S.cages) { c.opened = true; tiles[c.ty * MW + c.tx] = T.PATH }
+    S.rescued = S.total
+    S.seen.fill(1)                                 // 地図は、クリアした人には全部見えている
+    P.forEach((m, i) => {
+      let x = sx, y = sy
+      for (let tries = 0; tries < 40 && i > 0; tries++) {
+        x = sx + rnd(-80, 80); y = sy + rnd(-60, 60)
+        if (!boxBlocked(x, y, 5)) break
+      }
+      const u = newAlly(JOBS[m.job] ? m.job : 'sword', x, y, m.lvl)
+      u.xp = m.xp ?? 0
+      u.name = m.name
+      u.pid = i
+    })
+    S.leader = S.allies[0]
+  }
+  function makeNightmare() {
+    S.nmBosses = 0
+    S.nmCap = NIGHTMARE.cap                      // 同時に出る敵の上限（main.js が重さを見て下げる）
+    let spawnT = 3, bossT = NIGHTMARE.bossEvery
+    // 強さ: 体力と攻撃は NIGHTMARE.grow 秒ごとに e 倍。経験値も伸びる（効率よく狩れば、レベルが追いつける）
+    const mulAt = (t) => Math.exp(t / NIGHTMARE.grow)
+    const spawnOne = () => {
+      const t = S.t, m = mulAt(t)
+      const tierMax = Math.min(6, 1 + Math.floor(t / NIGHTMARE.tierEvery))
+      const tier = Math.max(1, tierMax - ((Math.random() * 3) | 0))   // いまの段階と、その 2 つ手前まで
+      const k = pick(POOLS[tier - 1])
+      const B = EDEF[k]
+      const D = { ...B, hp: Math.round(B.hp * m), dmg: Math.round(B.dmg * m ** NIGHTMARE.dmgPow), xp: B.xp * NIGHTMARE.xpMul * m ** NIGHTMARE.xpPow, aggro: 400 }
+      for (let tries = 0; tries < 12; tries++) {
+        const side = (Math.random() * 4) | 0, u = Math.random()
+        const x = S.cam.x + (side === 0 ? 6 : side === 1 ? VIEW_W - 6 : u * VIEW_W), y = S.cam.y + (side === 2 ? 10 : side === 3 ? VIEW_H - 6 : u * VIEW_H)
+        if (boxBlocked(x, y, 8) || !flow.reachable(Math.floor(x / TILE), Math.floor(y / TILE))) continue
+        const e = newEnemy(k, x, y, -9, D)
+        e.aggro = true
+        e.nm = true
+        return
+      }
+    }
+    return {
+      step(dt) {
+        const L = S.leader
+        if (!L) return
+        // 遠くに置いていかれた敵は消す（画面の外の敵は動かないので、逃げると溜まる）
+        let n = 0
+        for (const e of S.enemies) {
+          if (e.hp <= 0 || e.kind === 'boss') continue
+          if (Math.hypot(e.x - L.x, e.y - L.y) > NIGHTMARE.far) { e.hp = 0; continue }
+          n++
+        }
+        spawnT -= dt
+        const every = 1 / Math.min(NIGHTMARE.rateMax, NIGHTMARE.rate0 + S.t * NIGHTMARE.rateUp)
+        while (spawnT <= 0) {
+          spawnT += every
+          if (n < S.nmCap) { spawnOne(); n++ }
+        }
+        if (!S.boss || S.boss.hp <= 0) {
+          bossT -= dt
+          if (bossT <= 0) {
+            bossT = NIGHTMARE.bossEvery
+            for (let tries = 0; tries < 20; tries++) {
+              const a = rnd(0, 6.28), x = L.x + Math.cos(a) * 150, y = L.y + Math.sin(a) * 110
+              if (boxBlocked(x, y, 20) || !flow.reachable(Math.floor(x / TILE), Math.floor(y / TILE))) continue
+              const b = spawnBoss(x, y, mulAt(S.t) * NIGHTMARE.bossMul, mulAt(S.t) ** NIGHTMARE.xpPow)
+              b.aggro = false
+              S.banner = 'DEMON KING RETURNS'
+              S.bannerT = 3
+              break
+            }
+          }
+        }
+      },
+      mul: () => mulAt(S.t),
+    }
+  }
   // ボス戦の試し（createSim({ test: 'boss', testLv })）: 全員助けた（99 人）レベル testLv の仲間で、闘技場の前から始める。
   // 魔王城の兵はいない。ふつうに倒れる（全員倒れたらやり直し）
   function makeBossTest() {
@@ -2141,15 +2235,43 @@ export function createSim(opts = {}) {
     updateCamera()
     refreshFlow()
   }
+  // ナイトメアの今の仲間（終わったとき、上がったレベルを持ち帰る。倒れた仲間も、倒れたときのレベルで）
+  const nmNow = () => [
+    ...S.allies.filter((a) => a.alive).map((a) => ({ pid: a.pid, lvl: a.lvl, xp: a.xp, hp: Math.round(a.hp), x: Math.round(a.x), y: Math.round(a.y), alive: true })),
+    ...S.deaths.map((d) => ({ pid: d.pid, lvl: d.lvl, xp: d.xp ?? 0, alive: false })),
+  ].filter((m) => m.pid !== undefined)
+  // ナイトメアの中断（閉じたとき）。敵は残さない（戻ると、まわりは空いている）
+  // クリアしたときの仲間全員（倒れた仲間も）。ナイトメアはここから始まる
+  const clearParty = () => [...S.allies.filter((a) => a.alive), ...S.deaths].map((a) => ({ job: a.job, lvl: a.lvl, xp: +(a.xp ?? 0).toFixed(2), name: a.name }))
+  const serializeNM = () => ({ t: S.t, kills: S.kills, bosses: S.nmBosses, leader: S.leader?.pid, party: nmNow() })
+  function restoreNM(d) {
+    S.t = d.t
+    S.kills = d.kills ?? 0
+    S.nmBosses = d.bosses ?? 0
+    const by = new Map(d.party.map((m) => [m.pid, m]))
+    for (const u of S.allies) {
+      const m = by.get(u.pid)
+      if (!m) continue
+      u.lvl = m.lvl; u.xp = m.xp
+      u.maxhp = Math.round(JOBS[u.job].hp * lvMul(u.lvl))
+      if (m.alive) { u.hp = Math.min(u.maxhp, m.hp ?? u.maxhp); if (m.x != null) { u.x = m.x; u.y = m.y } }
+      else { u.alive = false; S.lost++; S.deaths.push({ id: u.id, pid: u.pid, xp: u.xp, job: u.job, lvl: u.lvl, name: u.name, t: S.t, x: u.x, y: u.y, by: '?', maxhp: u.maxhp }) }
+    }
+    S.allies = S.allies.filter((a) => a.alive)
+    S.leader = S.allies.find((a) => a.pid === d.leader) ?? S.allies[0]
+    S.flowKey = -1
+    updateCamera()
+    refreshFlow()
+  }
   // 保存してよい状態か（戦いの最中でない）
   const canSave = () => {
-    if (S.state !== 'play' || S.bossFight || S.boss.aggro) return false
+    if (NM || S.state !== 'play' || S.bossFight || S.boss?.aggro) return false
     for (const e of S.actE) if (e.aggro && e.hp > 0) return false
     return true
   }
 
   Object.assign(S, {
-    bossOpening, serialize, restore, canSave, spawnEnemy: (k, x, y) => { const e = newEnemy(k, x, y, -9); e.active = true; return e },
+    bossOpening, serialize, restore, canSave, nightmare: NM, nmNow, clearParty, serializeNM, restoreNM, nmMul: () => playground?.mul?.() ?? 1, spawnEnemy: (k, x, y) => { const e = newEnemy(k, x, y, -9); e.active = true; return e },
     step, switchTo, cycle, tapAt, newAlly, isManual, setJob, boomLoopAt, diff: opts.diff ?? 'normal', openCage, boxBlocked, teleportNearView, inArena, healPulse,
     bossPhase: () => (S.boss ? bossPhase(S.boss) : 0), nearestCage,
   })
