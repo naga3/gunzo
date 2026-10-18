@@ -20,7 +20,7 @@
 - `src/main.js`: 入力（ドラッグ移動、短いタップで味方に切り替え、前後ボタン、ポーズ、キーボード）、スロット・セーブ・中断・ナイトメアの画面の流れ、ループ
 - `src/save.js`: localStorage の読み書き（スロット、中断用のセーブ、いちばんよい記録）
 - `src/audio.js`: ogg の再生（BGM は繰り返し、効果音）
-- `tools/`: `check.mjs`（動作確認。`npm run check`）、`bot.mjs`（ふつうのボット）、`botsmart.mjs`（上手いボット）、`botsolo.mjs`（ソロのボット）、`bossduel.mjs`（ボスと 1 対 1）、`bossarmy.mjs`（ボス戦だけ・大軍）、`microlib.mjs`（避ける・斬る動き）、`stuck.mjs`（引っかかりの測定）、`map.mjs`（世界の地図の PNG）、`shot.mjs`（画面の PNG）、`gallery.mjs`（職と敵の一覧）、`render-audio.mjs`、`sounds.mjs`、`video.mjs`（プレイ動画。試し場で職を順に替えながら自動で戦う 2 分の MP4 を `build/gunzo-play.mp4` に。画面なし、ffmpeg が要る）
+- `tools/`: `check.mjs`（動作確認。`npm run check`）、`bot.mjs`（ふつうのボット）、`botsmart.mjs`（上手いボット）、`botsolo.mjs`（ソロのボット）、`bossduel.mjs`（ボスと 1 対 1）、`bossarmy.mjs`（ボス戦だけ・大軍）、`microlib.mjs`（避ける・斬る動き）、`stuck.mjs`（引っかかりの測定）、`map.mjs`（世界の地図の PNG）、`shot.mjs`（画面の PNG）、`gallery.mjs`（職と敵の一覧）、`render-audio.mjs`、`sounds.mjs`、`video.mjs`（プレイ動画。試し場で職を順に替えながら自動で戦う 2 分の MP4 を `build/gunzo-play.mp4` に。画面なし、ffmpeg が要る）、`promo.mjs`（紹介動画。前半は 100 人のボス戦・隙・ナイトメアの大群・大技〈曲はボス戦〉、後半は 10 職の紹介と檻・仲間の一覧〈曲はフィールド〉。字幕は Noto Sans CJK JP の drawtext。約 100 秒の MP4 を `build/gunzo-promo.mp4` に）
 
 ## ルール（決定事項）
 - 操作はドラッグ（PC は WASD／矢印）で移動、味方をタップ／クリックで切り替え。特殊攻撃は廃止（忙しくて使う暇がない）
