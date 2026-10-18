@@ -1,26 +1,27 @@
 #!/usr/bin/env node
-// 効果音と BGM を、PX-13h の音源（ブラウザの Studio と同じ engine.wasm）で鳴らして public/audio/*.ogg（と、ogg が使えない端末用の *.wav）に書き出す。
+// 効果音と BGM を、PX-13h の音源（PX-13h Music と同じ engine.wasm）で鳴らして public/audio/*.ogg（と、ogg が使えない端末用の *.wav）に書き出す。
 //   node tools/render-audio.mjs            全部
-//   node tools/render-audio.mjs bgm jump   指定したものだけ
+//   node tools/render-audio.mjs field boss  指定したものだけ
+// BGM は music/<名前>.song（PX-13h Music で編集）、効果音は tools/sounds.mjs
 // PX-13h の場所は環境変数 PX13H（既定は ../px13h）。ffmpeg が要る
-import { readFileSync, writeFileSync, copyFileSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, copyFileSync, mkdirSync, existsSync } from 'fs'
 import { execFileSync } from 'child_process'
 import { fileURLToPath } from 'url'
 import { dirname, join, resolve } from 'path'
-import { ENVELOPES, SE, SONGS } from './sounds.mjs'
+import { ENVELOPES, SE, BGM } from './sounds.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const px = resolve(process.env.PX13H || join(here, '../../px13h'))
-const { Engine } = await import(join(px, 'tools/studio/web/engine.js'))
-const { parseMML, initialState } = await import(join(px, 'tools/studio/web/mml.js'))
-const wasm = readFileSync(join(px, 'tools/studio/web/engine.wasm'))
+const { Engine } = await import(join(px, 'tools/music/web/engine.js'))
+const { parseSong, compose, analyze, buildTracks } = await import(join(px, 'tools/music/web/song.js'))
+const wasm = readFileSync(join(px, 'tools/music/web/engine.wasm'))
 const out = join(here, '../public/audio')
 mkdirSync(out, { recursive: true })
 const RATE = 48000
 
-async function render(tracks, { loop = false, seconds = 0 } = {}) {
+async function render(tracks, { loop = false, seconds = 0, envelopes = ENVELOPES } = {}) {
   const e = await Engine.load(wasm)
-  e.setSong({ mode: 0, tracks, envelopes: ENVELOPES })
+  e.setSong({ mode: 0, tracks, envelopes })
   e.play()
   const chunks = []
   let n = 0
@@ -59,39 +60,38 @@ function writeOgg(name, s) {
   console.log(`${name}.ogg / .wav  ${(s.length / RATE).toFixed(2)} 秒`)
 }
 
-// BGM の小節の長さが全パートでそろっているか確かめる（全音符 = 1）
-function checkBgm(name, BGM) {
-  let ok = true
-  BGM.perBar.forEach((bars, p) => {
-    let st = initialState(p, p === 3)
-    bars.forEach((b, i) => {
-      const r = parseMML(b, st)
-      st = r.state
-      if (Math.abs(r.length - 1) > 1e-6 || r.errors.length) {
-        ok = false
-        console.error(`${name} パート ${p} の ${i + 1} 小節目: 長さ ${r.length}${r.errors.length ? ' ' + r.errors.join(' ') : ''}  ${b}`)
-      }
-    })
-  })
-  if (!ok) process.exit(1)
+// 曲（music/<名前>.song）を読む。書き間違い・長さのずれがあれば止める。選んだ候補（.picks.json）も当てはめる
+const MUSIC_DIR = join(here, '../music')
+function loadSong(name) {
+  const file = join(MUSIC_DIR, `${name}.song`)
+  const song = parseSong(readFileSync(file, 'utf8'))
+  const pf = file.replace(/\.song$/, '.picks.json')
+  const picks = existsSync(pf) ? JSON.parse(readFileSync(pf, 'utf8')) : {}
+  const composed = compose(song, picks)
+  const a = analyze(song, composed)
+  const errors = [...song.errors, ...a.errors]
+  if (errors.length) { console.error(`${name}.song:\n  ${errors.join('\n  ')}`); process.exit(1) }
+  const envelopes = song.envelopes ? ENVELOPES.map((e, i) => song.envelopes[i] ?? e) : ENVELOPES   // 書いていない番号は今までのもの
+  return { song, composed, a, envelopes, bars: composed.bars.length, tempo: song.tempo }
 }
+const tracksOf = (S, loop) => buildTracks(S.song, S.composed, S.a, -Infinity, Infinity, loop).tracks
 
 // 繰り返しの 1 周分を取り出す。2 周目を切り出すので、1 周目の余韻が頭に重なって、つなぎ目が自然になる
-async function renderLoop(BGM) {
-  const t = (BGM.bars * 4 * 60) / BGM.tempo
+async function renderLoop(S) {
+  const t = (S.bars * 4 * 60) / S.tempo
   const period = Math.round(t * RATE)
-  const two = await render(BGM.tracks, { loop: true, seconds: (period * 2 + 2400) / RATE })
+  const two = await render(tracksOf(S, true), { loop: true, seconds: (period * 2 + 2400) / RATE, envelopes: S.envelopes })
   console.log(`1 周: 計算上 ${t.toFixed(3)} 秒`)
   return two.slice(period, period * 2)
 }
 
 const want = process.argv.slice(2)
 const all = want.length === 0
-for (const [name, def] of Object.entries(SONGS)) {
+for (const [name, def] of Object.entries(BGM)) {
   if (!all && !want.includes(name)) continue
-  checkBgm(name, def)
-  if (def.loop) writeOgg(name, normalize(await renderLoop(def), def.peak))
-  else writeOgg(name, normalize(trimSilence(await render(def.tracks)), def.peak))
+  const S = loadSong(name)
+  if (def.loop) writeOgg(name, normalize(await renderLoop(S), def.peak))
+  else writeOgg(name, normalize(trimSilence(await render(tracksOf(S, false), { envelopes: S.envelopes })), def.peak))
 }
 for (const [name, def] of Object.entries(SE)) {
   if (!all && !want.includes(name)) continue

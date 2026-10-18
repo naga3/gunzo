@@ -1,0 +1,89 @@
+# gunzo の曲（PX-13h Music で編集する。保存すると gunzo の public/audio/field.ogg に書き出される）
+title GUNZO FIELD
+tempo 132
+mode famicom
+part 0 @1 v13 @v0 q7 ~10,8,20
+part 1 @1 v10 @v0 q7
+part 2 q6
+part 3
+
+bar 1 A
+  0: v11 o5 g4 b4 >d4 <b4
+  1: r1
+  2: o2 l8 g >g <g >g <g >g <g >g
+  3: v6 l8 @v2 o5 f f f f f f f f
+bar 2
+  0: o5 a4 f+4 a4 >d4
+  1: r1
+  2: o2 l8 d >d <d >d <d >d <d >d
+  3: v6 l8 @v2 o5 f f f f f f f f
+bar 3
+  0: o5 g4 e4 g4 b4
+  1: r1
+  2: o2 l8 e >e <e >e <e >e <e >e
+  3: v6 l8 @v2 o5 f f f f f f f f
+bar 4
+  0: o5 e4 g4 >c4 <g4
+  1: r1
+  2: o2 l8 c >c <c >c <c >c <c >c
+  3: v6 l8 @v2 o5 f f f f f f f f
+bar 5 B
+  0: v12 o5 r8 g8 b4 >d4 g4
+  1: V5 r8 v12 o5 r8 g8 b4 >d4 g8
+  2: o2 l8 g >g <g >g <g >g <g >g
+  3: v8 l8 @v4 o4 g @v2 o5 f f f @v4 o4 g @v2 o5 f f f
+bar 6
+  0: o5 r8 a8 >d4 f+4 a4
+  1: V5 r8 o5 r8 a8 >d4 f+4 a8
+  2: o2 l8 d >d <d >d <d >d <d >d
+  3: v8 l8 @v4 o4 g @v2 o5 f @v3 c+ @v2 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f
+bar 7
+  0: o5 r8 g8 >c4 e4 g4
+  1: V5 r8 o5 r8 g8 >c4 e4 g8
+  2: o2 l8 c >c <c >c <c >c <c >c
+  3: v8 l8 @v4 o4 g @v2 o5 f @v3 c+ @v2 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f
+bar 8
+  0: o5 a4 >d4 f+4 <a4
+  1: V5 r8 o5 a4 >d4 f+4 <a8
+  2: o2 l8 d >d <d >d <d >d <d >d
+  3: v8 l16 @v4 o4 g @v2 o5 f @v2 f @v2 f @v3 c+ @v2 f @v2 f @v2 f @v4 o4 g @v2 o5 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f @v3 c+ @v3 c+
+bar 9 C
+  0: v13 o5 b4. >d8 g4 d4
+  1: V11 @p23 v13 o5 b4. >d8 g4 d4
+  2: o2 l8 g >g <g >g <g >g <g >g
+  3: v11 l8 @v21 o5 c @v2 f @v3 c+ @v2 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f
+bar 10
+  0: o5 g4. b8 >e4 <b4
+  1: V11 @p23 o5 g4. b8 >e4 <b4
+  2: o2 l8 e >e <e >e <e >e <e >e
+  3: v10 l8 @v4 o4 g @v2 o5 f @v3 c+ @v2 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f
+bar 11
+  0: o5 e4. g8 >c4 e4
+  1: V11 @p23 o5 e4. g8 >c4 e4
+  2: o2 l8 c >c <c >c <c >c <c >c
+  3: v10 l8 @v4 o4 g @v2 o5 f @v3 c+ @v2 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f
+bar 12
+  0: o5 f+4. a8 >d2
+  1: V11 @p23 o5 f+4. a8 >d2
+  2: o2 l8 d >d <d >d <d >d <d >d
+  3: v10 l16 @v4 o4 g @v2 o5 f @v2 f @v2 f @v3 c+ @v2 f @v2 f @v2 f @v4 o4 g @v2 o5 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f @v3 c+ @v3 c+
+bar 13
+  0: o5 b4. >d8 g4 b4
+  1: V11 @p23 o5 b4. >d8 g4 b4
+  2: o2 l8 g >g <g >g <g >g <g >g
+  3: v10 l8 @v4 o4 g @v2 o5 f @v3 c+ @v2 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f
+bar 14
+  0: o5 g4. b8 >e4 g4
+  1: V11 @p23 o5 g4. b8 >e4 g4
+  2: o2 l8 e >e <e >e <e >e <e >e
+  3: v10 l8 @v4 o4 g @v2 o5 f @v3 c+ @v2 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f
+bar 15
+  0: o5 a4. >c8 e4 c4
+  1: V11 @p23 o5 a4. >c8 e4 c4
+  2: o2 l8 a >a <a >a <a >a <a >a
+  3: v10 l8 @v4 o4 g @v2 o5 f @v3 c+ @v2 f @v4 o4 g @v2 o5 f @v3 c+ @v2 f
+bar 16
+  0: o5 @p8 g1 @p
+  1: V11 @p23 o5 @p24 g1 @p23
+  2: o2 l8 g >g <g >g <g >g <g >g
+  3: l8 @v21 o5 c r r r r r r r

@@ -1,0 +1,4 @@
+{
+  "after": "node tools/render-audio.mjs field boss ending",
+  "cwd": ".."
+}
