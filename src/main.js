@@ -1,7 +1,7 @@
 import { ALL_HEX } from './shade.js'
 import { createSim, JOB_LIST, JOBS } from './sim.js'
 import { SHOOT, THROW, NIGHTMARE } from './data.js'
-import { createRenderer, W, H, GLASS, GLASS_HOT, PREV_BTN, NEXT_BTN, PAUSE_BTN, SWING_BTN, SLOT_BTNS, slotItemBtn, MENU_BTNS, PAGE_PREV, PAGE_NEXT, listPages, listHit } from './render.js'
+import { createRenderer, W, H, GLASS, GLASS_HOT, PREV_BTN, NEXT_BTN, PAUSE_BTN, SWING_BTN, SLOT_BTNS, slotItemBtn, MENU_BTNS, WIN_BTNS, WIN_LIST_BTNS, PAGE_PREV, PAGE_NEXT, listPages, listHit } from './render.js'
 import { audio } from './audio.js'
 import { SLOTS, migrate, useTestSaves, readSlot, writeSlot, deleteSlot, readSuspend, writeSuspend, clearSuspend, readNum, writeNum, BEST_KEY, NM_BEST_KEY } from './save.js'
 
@@ -240,6 +240,7 @@ function toTitle() {
   if (S.nightmare) endNightmare()
   ui.screen = 'title'
   ui.paused = false
+  ui.winList = false
   ui.slotMenu = null
   slot = 0
   S = createSim(simOpts())
@@ -336,7 +337,17 @@ canvas.addEventListener('pointerdown', (e) => {
     return
   }
   if (S.state === 'over') { gameOverTap(); return }
-  if (S.state === 'win') { if (S.winT > 2.5) toTitle(); return }
+  if (S.state === 'win') {                        // 勝ったあと: まとめ（ALLIES）と、仲間の一覧（BACK・TITLE）
+    if (S.winT <= 2.5) return
+    if (ui.winList) {
+      if (inRect(p, PAGE_PREV)) turnPage(-1)
+      if (inRect(p, PAGE_NEXT)) turnPage(1)
+      for (const b of WIN_LIST_BTNS) if (inRect(p, b, SLOP(e))) { if (b.id === 'back') ui.winList = false; else toTitle() }
+      return
+    }
+    for (const b of WIN_BTNS) if (inRect(p, b, SLOP(e))) { ui.winList = true; ui.page = 0 }
+    return
+  }
   if (inRect(p, PAUSE_BTN, SLOP(e))) { pause(); drags.clear(); return }
   if (inRect(p, PREV_BTN, SLOP(e))) { S.cycle(-1); drags.set(e.pointerId, { kind: 'btn' }); return }
   if (inRect(p, NEXT_BTN, SLOP(e))) { S.cycle(1); drags.set(e.pointerId, { kind: 'btn' }); return }
@@ -436,12 +447,20 @@ window.addEventListener('keydown', (e) => {
     if (k === '1' || k === '2' || k === '3') pickSlot(Number(k))
     return
   }
-  if (k === 'escape' || k === 'p') { if (S.state === 'play') { if (ui.paused) ui.paused = false; else pause() } return }
+  if ((k === 'escape' || k === 'p') && S.state !== 'win') { if (S.state === 'play') { if (ui.paused) ui.paused = false; else pause() } return }
   if (ui.paused && (k === 'arrowleft' || k === 'a')) { turnPage(-1); return }
   if (ui.paused && (k === 'arrowright' || k === 'd')) { turnPage(1); return }
   if (k === 'm') { ui.sound = !ui.sound; localStorage.setItem(SOUND_KEY, ui.sound ? '1' : '0'); audio.setEnabled(ui.sound); return }
   if (S.state === 'over') { if (k === 'r' || k === ' ' || k === 'enter') gameOverTap(); return }
-  if (S.state === 'win') { if (S.winT > 2.5 && (k === ' ' || k === 'enter')) toTitle(); return }
+  if (S.state === 'win') {                        // まとめでは Enter・Space・L で仲間の一覧、一覧では Enter・Space でタイトル、Esc で戻る、← → でページ送り
+    if (S.winT <= 2.5) return
+    if (!ui.winList && (k === ' ' || k === 'enter' || k === 'l')) { ui.winList = true; ui.page = 0 }
+    else if (k === ' ' || k === 'enter') toTitle()
+    else if (k === 'escape' || k === 'l') ui.winList = false
+    else if (ui.winList && k === 'arrowleft') turnPage(-1)
+    else if (ui.winList && k === 'arrowright') turnPage(1)
+    return
+  }
   if (ui.paused) return
   if (k === ' ' || k === 'z') {                   // 振るボタンを押すのと同じ（狙いは自動。押しながらドラッグで狙う）
     zHeld = true

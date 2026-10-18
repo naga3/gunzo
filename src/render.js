@@ -31,6 +31,14 @@ export const MENU_BTNS = [
   { id: 'full', label: 'FULL', x: 230, y: H - 24, w: 44, h: 20 },     // 全画面（ブラウザのバーを消す。できないブラウザでは灰色）
   { id: 'title', label: 'TITLE', x: 276, y: H - 24, w: 40, h: 20 },
 ]
+// 勝ったあと: まとめの画面のボタン（ALLIES だけ）と、仲間の一覧（ポーズと同じ）のボタン
+export const WIN_BTNS = [
+  { id: 'list', label: 'ALLIES', x: W / 2 - 40, y: 186, w: 80, h: 20 },   // タイトルへは一覧から（まず仲間を見てもらう）
+]
+export const WIN_LIST_BTNS = [
+  { id: 'back', label: 'BACK', x: W - 92, y: H - 24, w: 42, h: 20 },
+  { id: 'title', label: 'TITLE', x: W - 46, y: H - 24, w: 42, h: 20 },
+]
 export const PAGE_PREV = { x: 4, y: H - 24, w: 20, h: 20 }
 export const PAGE_NEXT = { x: 70, y: H - 24, w: 20, h: 20 }
 export const LIST_ROWS = 10, LIST_COLS = 3, LIST_Y = 20, ROW_H = 19, COL_W = (W - 8) / LIST_COLS
@@ -1092,10 +1100,10 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       text(tip, W / 2 - textW(tip, 1) / 2, 210, c('gy4'), 1)
     }
   }
-  // ポーズ: 助けた仲間の一覧（歩く絵・名前・職・今のレベル・次のレベルまでの経験値）。押すとその仲間に切り替わる
-  function drawPause(S, ui, t) {
+  // 仲間の一覧（歩く絵・名前・職・今のレベル・次のレベルまでの経験値。倒れた仲間は末尾）と、ページ送り。ポーズと、勝ったあとの画面で使う
+  function drawRoster(S, ui, t, title) {
     rect(0, 0, W, H, c('black'))                  // 一覧は字が多いので、後ろの世界は見せない
-    text('PAUSE', 4, 4, c('white'), 2)
+    text(title, 4, 4, c('white'), 2)
     const info = `TIME ${fmtTime(S.t)}  ALLIES ${S.allies.filter((a) => a.alive).length}`
     text(info, W - 4 - textW(info, 1), 7, c('gy5'), 1)
     const pages = listPages(S), page = listPage(S, ui)
@@ -1131,6 +1139,10 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       const pg = `${page + 1}/${pages}`
       text(pg, (PAGE_PREV.x + PAGE_PREV.w + PAGE_NEXT.x) / 2 - textW(pg, 1) / 2, H - 16, c('white'), 1)
     }
+  }
+  // ポーズ: 仲間の一覧（押すとその仲間に切り替わる）と、下のボタン
+  function drawPause(S, ui, t) {
+    drawRoster(S, ui, t, 'PAUSE')
     for (const b of MENU_BTNS) {
       if ((b.id === 'save' && !ui.canSave) || (b.id === 'full' && !ui.canFull)) {   // 戦いの最中・ナイトメアの SAVE、全画面にできないブラウザの FULL は押せない（灰色）
         rect(b.x, b.y, b.w, b.h, c('black')); rect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, c('gy1'))
@@ -1161,8 +1173,13 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     const m = 'TAP TO CONTINUE FROM SAVE'
     if (Math.floor(t * 2) % 2 === 0) text(m, W / 2 - textW(m, 1) / 2, 140, c('white'), 1)
   }
-  function drawWin(S, t) {
+  function drawWin(S, ui, t) {
     if (S.winT < 2.5) return
+    if (ui.winList) {                               // 仲間の一覧（全員の最後のレベル）
+      drawRoster(S, ui, t, 'VICTORY')
+      for (const b of WIN_LIST_BTNS) drawButton(b, b.label, false, 1)
+      return
+    }
     overlayDark()
     const s = 'VICTORY'
     text(s, W / 2 - textW(s, 5) / 2 + 1, 25, c('black'), 5)
@@ -1174,7 +1191,7 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     const rows = [`TIME ${fmtTime(S.t)}${S.newBest ? '  NEW RECORD!' : S.best ? `  (BEST ${fmtTime(S.best)})` : ''}`, `RESCUED ${S.rescued}/${S.total}`, `LOST ${S.lost}`, `ALIVE ${S.allies.length}`, `KILLS ${S.kills}`]   // クリア時間（早解き）
     rows.forEach((l, i) => text(l, W / 2 - textW(l, 1) / 2, 100 + i * 12, c('white'), 1))
     text('NIGHTMARE MODE UNLOCKED', W / 2 - textW('NIGHTMARE MODE UNLOCKED', 1) / 2, 164, c('rd3'), 1)
-    if (Math.floor(t * 2) % 2 === 0) text('TAP TO RETURN TO TITLE', W / 2 - textW('TAP TO RETURN TO TITLE', 1) / 2, 180, c('gy5'), 1)
+    for (const b of WIN_BTNS) drawButton(b, b.label, false, 1)
   }
 
   // --- 1フレーム ---
@@ -1276,7 +1293,7 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     if (ui.screen === 'title') drawTitle(ui, t)
     else if (ui.paused) drawPause(S, ui, t)
     else if (S.state === 'over') drawOver(S, ui, t)
-    else if (S.state === 'win') drawWin(S, t)
+    else if (S.state === 'win') drawWin(S, ui, t)
   }
 
   // 画面の外の余白（スマホ）: 移動のスティックと振るボタン。fb は余白の絵（画面全体）、ui.pad の座標はその上のドット
