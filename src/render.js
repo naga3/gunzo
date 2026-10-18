@@ -882,9 +882,8 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       }
     }
     const seenAt = (tx, ty) => S.seen[ty * MW + tx]
-    if (Math.floor(t * 2) & 1) for (const cg of S.cages) {   // まだ助けていない檻を全部、黄色の 1 ドットで点滅（助けた檻は出さない）
-      if (!cg.opened) px(ox + Math.floor(cg.tx / 3), oy + Math.floor(cg.ty / 3), c('ye2'))
-    }
+    const cageCol = Math.floor(t * 2) & 1 ? c('ye2') : c('black')   // まだ助けていない檻を全部、黄色と黒の 1 ドットで点滅（いつも見える。雪の上でも黒で分かる。助けた檻は出さない）
+    for (const cg of S.cages) if (!cg.opened) px(ox + Math.floor(cg.tx / 3), oy + Math.floor(cg.ty / 3), cageCol)
     // 魔王の居場所は出さない（2026-10-18。探す楽しみを残す）
     // いまの画面の範囲
     const vx0 = Math.floor(S.cam.x / TILE / 3), vy0 = Math.floor(S.cam.y / TILE / 3)
