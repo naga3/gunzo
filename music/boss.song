@@ -60,7 +60,7 @@ bar 8
   4: c8 d8 g16 g16 f16 f16 e16 e16 d16 d16 b8 b8
 bar 9 C
   0: o5 @p8 b4. @p a4 e16 f+16 g8 b8
-  1: V11 @i0 v13 o5 @p24 b4. @p23 a4 e16 f+16 g8 b8
+  1: V11 @i0 v13 o5 @p24 ~28,7,4 b4. ~10,8,20 @p23 a4 e16 f+16 g8 b8
   2: o2 a8 >a8 <a8 >a8 <a8 >a8 <a8 >a8
   3: v11 @v21 o5 c8 @v2 f8 @v3 c+8 @v2 f8 f8 f8 @v3 c+8 @v2 f8
   4: c8 c8 b4 c8 c8 b4
@@ -83,20 +83,20 @@ bar 12
   3: v10 @v2 o5 f8 f8 @v3 c+8 @v2 f8 f8 @v3 c+16 c+16 c+16 c+16 c+8
   4: c8 c8 b4 c8 d16 d16 g16 f16 e16 e16
 bar 13
-  0: o5 e8 e8 @p8 >e4^8 @p d8 c8 <b8
-  1: o5 e8 e8 @p24 >e4^8 @p23 d8 c8 <b8
+  0: o5 @p e8 e8 s5 >e4^8 s0 d8 c8 <b8
+  1: o5 @p23 e8 e8 s5 >e4^8 s0 d8 c8 <b8
   2: o2 c8 >c8 <c8 >c8 <c8 >c8 <c8 >c8
   3: v11 @v21 o5 c8 @v2 f8 @v3 c+8 @v2 f8 f8 f8 @v3 c+8 @v2 f8
   4: c8 c8 b4 c8 c8 b4
 bar 14
-  0: o5 f+8 f+8 @p8 >f+4^8 @p e8 d8 e8
-  1: o5 f+8 f+8 @p24 >f+4^8 @p23 e8 d8 e8
+  0: o5 f+8 f+8 s5 >f+4^8 s0 e8 d8 e8
+  1: o5 f+8 f+8 s5 >f+4^8 s0 e8 d8 e8
   2: o2 d8 >d8 <d8 >d8 <d8 >d8 <d8 >d8
   3: v10 l16 @v2 o5 f f f f @v3 c+8 @v2 f f f f f f @v3 c+8 @v2 f f
   4: c8 c8 b4 c8 c16 c16 b4
 bar 15
-  0: o5 a8 a8 @p8 >a4 @p g8 e8 f8 g8
-  1: o5 a8 a8 @p24 >a4 @p23 g8 e8 f8 g8
+  0: o5 a8 a8 s5 >a4 s0 g8 e8 f8 g8
+  1: o5 a8 a8 s5 >a4 s0 g8 e8 f8 g8
   2: o2 f8 >f8 <f8 >f8 <f8 >f8 <f8 >f8
   3: v10 @v2 o5 f8 f8 @v3 c+8 @v2 f8 f8 f8 @v3 c+8 @v2 f16 f16
   4: c8 c8 b4 c8 c8 b4
