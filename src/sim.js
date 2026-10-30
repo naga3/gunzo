@@ -458,7 +458,13 @@ export function createSim(opts = {}) {
     }
     u.cd = PRAY.cd
     u.swingT = S.t
-    if (!best) { num(u.x, u.y - 22, 'OK', 'gr5'); return }   // みんな元気
+    if (!best) {                                   // みんな元気: 光は近くの敵へ（弱い攻撃。gunzo-online から、2026-10-30）
+      const foe = S.t >= (u.smiteAt ?? -9) ? autoTarget(u, PRAY.range) : null   // 攻撃の間隔（smiteCd）は回復とは別に数える（攻撃したあとでも、けが人が出たらすぐ治せるように）
+      if (!foe) { if (S.t >= (u.smiteAt ?? -9)) num(u.x, u.y - 22, 'OK', 'gr5'); return }
+      u.smiteAt = S.t + PRAY.smiteCd
+      S.projs.push({ kind: 'holybolt', team: 'heal', x: u.x, y: u.y - 8, vx: 0, vy: -PRAY.boltSpeed, foe, dmg: PRAY.smite * lvMul(u.lvl), life: 2.5, spin: 0, hit: new Set(), r: 4, by: u })
+      return
+    }
     S.projs.push({ kind: 'healbolt', team: 'heal', x: u.x, y: u.y - 8, vx: 0, vy: -PRAY.boltSpeed, target: best, amount: PRAY.bolt * lvMul(u.lvl), life: 2.5, spin: 0, hit: new Set(), r: 4, by: u })
   }
   // 僧侶: 足元の癒やしの円。中の仲間を少しずつ治し（数字はまとめて出す）、入ってきた敵の弾を消す
@@ -1733,16 +1739,20 @@ export function createSim(opts = {}) {
     for (const p of S.projs) {
       p.life -= dt
       p.spin += dt * 14
-      if (p.team === 'heal') {                     // 癒やしの光: 仲間を追いかけて、着いたら治す
-        const a = p.target
-        if (!a || !a.alive) { p.life = 0; continue }
+      if (p.team === 'heal') {                     // 癒やしの光: 仲間を追いかけて、着いたら治す（foe があれば、敵を追いかけて、着いたら少し傷つける）
+        const a = p.foe ?? p.target
+        if (!a || (p.foe ? a.hp <= 0 : !a.alive)) { p.life = 0; continue }   // 敵は alive を持たないので hp で見る
         const dx = a.x - p.x, dy = a.y - 6 - p.y, d = Math.hypot(dx, dy) || 1
         const turn = Math.min(1, dt * 8)
         p.vx += ((dx / d) * PRAY.boltSpeed - p.vx) * turn
         p.vy += ((dy / d) * PRAY.boltSpeed - p.vy) * turn
         p.x += p.vx * dt
         p.y += p.vy * dt
-        if (d < 7) { healAlly(a, p.amount); ring(a.x, a.y, 'gr5', 12, 0.3); spark(a.x, a.y - 6, 'gr6', 6, 40); p.life = 0 }
+        if (d < 7 + (p.foe ? a.rad : 0)) {
+          if (p.foe) { hurtEnemy(a, p.dmg, p.by); spark(a.x, a.y - 6, 'ye3', 6, 40) }
+          else { healAlly(a, p.amount); ring(a.x, a.y, 'gr5', 12, 0.3); spark(a.x, a.y - 6, 'gr6', 6, 40) }
+          p.life = 0
+        }
         continue
       }
       if (p.strong && Math.random() < 0.7) spark(p.x - p.vx * 0.03, p.y - p.vy * 0.03, Math.random() < 0.5 ? 'or2' : 'ye2', 1, 25)   // 炎の矢の火の粉

@@ -3,7 +3,7 @@ import { P } from './palette.js'
 import { dark, ALL_HEX } from './shade.js'
 import { TILE, MW, MH, T, B } from './world.js'
 import { JOBS, VIEW_W, VIEW_H, MAX_LV, xpNeed } from './sim.js'
-import { SHOOT, GUARD, THROW, PRAY, FREEZE } from './data.js'
+import { SHOOT, GUARD, THROW, PRAY, FREEZE, CHAIN, BOOMER } from './data.js'
 import { SPRITE_DATA, DIR_DATA, ANIMS, colorTable, W as SW, H as SH } from './sprites.js'
 import { ENEMY_DATA, ENEMY_SIZE, ENEMY_ANIM, enemyTable } from './enemysprites.js'
 import * as ART from './art.js'
@@ -700,6 +700,10 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
         disc(x, y, 4, c('bl4')); disc(x, y, 3, c('bl5')); disc(x, y, 1, c('white'))
         for (let i = 0; i < 4; i++) { const r = p.spin + (i * Math.PI) / 2; px(Math.round(x + Math.cos(r) * 6), Math.round(y + Math.sin(r) * 6), c('white')) }
         break
+      case 'holybolt':                             // 治す仲間がいないときの光（敵へ）: 白と黄色に光る小さな玉
+        disc(x, y, 2, c('ye3')); px(x, y, c('white'))
+        px(x + (Math.floor(p.spin) & 1 ? 3 : -3), y, c('white')); px(x, y + (Math.floor(p.spin) & 1 ? -3 : 3), c('ye2'))
+        break
       case 'healbolt':                             // 癒やしの光: 緑に光る小さな玉
         disc(x, y, 2, c('gr5')); px(x, y, c('white'))
         px(x + (Math.floor(p.spin) & 1 ? 3 : -3), y, c('gr6')); px(x, y + (Math.floor(p.spin) & 1 ? -3 : 3), c('gr6'))
@@ -931,12 +935,20 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     for (let i = 0; i < 3; i++) rect(pb.x + m, pb.y + m + i * gap, pb.w - 2 * m, th, c('gy6'))   // ハンバーガー（三本線）
   }
   // b: ボタンの場所（ふだんは画面の右下。余白に出すときは余白の絵の座標）
-  function drawSwingBtn(S, L, b = SWING_BTN) {
-    const { x, y, r } = b
+  // knob: 押している指のずれ（{ dx, dy }。main.js の ui.knob）。押している間は、印がつまみになって指についてくる（右手で狙えると目で分かるように）
+  function drawSwingBtn(S, L, b = SWING_BTN, knob = null) {
+    let { x, y } = b
+    const r = b.r
     const hot = S.t - (L.swingT ?? -9) < 0.1
     if (b.solid) disc(x, y, r, hot ? c('gy3') : c('gy1'))   // 余白（後ろが黒い）では透かさない
     else disc(x, y, r, hot ? GLASS_HOT : GLASS)     // 画面の上では半透明（網掛けをやめた。2026-10-18）
-    ringPx(x, y, r, hot ? c('white') : c('gy5'), 1)
+    ringPx(x, y, r, knob ? c('ye3') : hot ? c('white') : c('gy5'), 1)
+    if (knob) {                                      // つまみ: 指のずれの向きへ（ボタンの内側まで）
+      x = Math.round(x + knob.dx)
+      y = Math.round(y + knob.dy)
+      disc(x, y, Math.round(r * 0.55), b.solid ? c('gy3') : GLASS_HOT)
+      ringPx(x, y, Math.round(r * 0.55), c('white'), 1)
+    }
     const col = hot ? c('ye3') : c('white')
     if (JOBS[L.job].heavy) {                         // ハンマーの印
       rect(x - 7, y - 9, 12, 7, col)
@@ -1034,7 +1046,7 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
     rect(px0 + 5, py0 + 18, pw - 10, 3, c('black'))
     if (L.lvl < MAX_LV) rect(px0 + 6, py0 + 19, Math.round(((pw - 12) * L.xp) / xpNeed(L.lvl)), 1, c('bl4'))
     if (!ui.pad) drawNavBtns(0, 0)                  // 余白があるときは、余白に出す（drawPad）
-    if (S.isManual?.(L) && !ui.pad) drawSwingBtn(S, L)   // 余白があるときは、余白に出す（drawPad）
+    if (S.isManual?.(L) && !ui.pad) drawSwingBtn(S, L, SWING_BTN, ui.knob)   // 余白があるときは、余白に出す（drawPad）
     drawMini(S, t)
     // ボスの体力
     const b = S.boss
@@ -1224,7 +1236,7 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       if (en.k === 'ally') {
         if (o === L) ringPx(fx, fy - 1, 8, Math.floor(t * 4) & 1 ? c('ye3') : c('ye1'), 0.5)
         drawPerson(o, fx, fy)
-        if (o === L && o.boomCast && o.aimLine && o.aimDir && S.boomLoopAt) {   // ブーメラン: 通る輪の点線
+        if (o === L && o.boomCast && o.aimLine && o.aimDir && S.boomLoopAt && ui.aimManual !== false) {   // ブーメラン: 通る輪の点線
           const lp = { sx: o.x, sy: o.y - 4, dx: o.aimDir[0], dy: o.aimDir[1], D: o.boomDist }
           const n = Math.round(lp.D * 2.6)                // 道のりにそって、2 点おきに 1 点空ける点線
           for (let i = 3; i < n - 3; i++) {
@@ -1232,8 +1244,8 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
             const [wx, wy] = S.boomLoopAt(lp, (i / n) * 2 * Math.PI, null)
             px(Math.round(wx - cx), Math.round(wy - cy), Math.abs(i / n - 0.5) < 0.06 ? c('ye3') : c('white'))   // 折り返しの所は黄色
           }
-        } else if (o === L && S.isManual?.(o) && o.aimLine && o.aimDir) {
-          // 狙っている向きの線（点線）。弓は遠くまで、剣は届く所まで
+        } else if (o === L && S.isManual?.(o) && o.aimLine && o.aimDir && ui.aimManual !== false) {
+          // 狙っている向きの線（点線）。弓は遠くまで、剣は届く所まで。自分で狙っている（ボタンをずらした・マウスで狙った）ときだけ（ui.aimManual）
           const [ax, ay] = o.aimDir, kd = JOBS[o.job].kind, len = kd === 'boomerang' ? o.boomDist : kd === 'arrow' || kd === 'magic' || kd === 'lightning' ? 70 : 30   // ブーメランは届く所まで
           for (let r = 14; r <= len; r += 3) px(Math.round(fx + ax * r), Math.round(fy - 8 + ay * r), r > len - 8 ? c('ye3') : c('white'))
         }
@@ -1282,6 +1294,26 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       } else if (en.k === 'enemy') drawEnemy(o, fx, fy, t)
       else drawCage(o, fx, fy, t)
     }
+    // 溜めていて、自分で狙っていない（自動で近くの敵へ）: 狙われる敵に印（四隅のかぎ）。狙いの線は出さない（線が出ると、移動で回せると思ってしまう）
+    if (L && ui.aimManual === false && S.isManual?.(L) && L.aimLine && L.aimDir) {
+      const kd = JOBS[L.job].kind, range = kd === 'lightning' ? CHAIN.range : kd === 'magic' ? FREEZE.range : kd === 'boomerang' ? BOOMER.max : SHOOT.range   // sim の autoAim と同じ届く範囲
+      let best = null, bd = range + 24
+      for (const e of S.enemies) {
+        if (!(e.hp > 0)) continue
+        const dx = e.x - L.x, dy = e.y - L.y, d = Math.hypot(dx, dy)
+        if (d < 1 || d > bd + (e.rad ?? 0) || (dx * L.aimDir[0] + dy * L.aimDir[1]) / d < 0.97) continue   // 狙いの向きから 14° ほどの内で、いちばん近い敵
+        best = e; bd = d
+      }
+      if (best) {
+        const sz = ENEMY_SIZE[best.kind] ?? { w: 16, h: 16 }, ex = Math.round(best.x - cx), ey = Math.round(best.y - cy) + 6 - (sz.h >> 1)
+        const hw = (sz.w >> 1) + 3, hh = (sz.h >> 1) + 3, col = Math.floor(t * 6) & 1 ? c('ye3') : c('white')
+        for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+          const ax = ex + sx * hw, ay = ey + sy * hh
+          rect(sx < 0 ? ax : ax - 3, ay, 4, 1, col)
+          rect(ax, sy < 0 ? ay : ay - 3, 1, 4, col)
+        }
+      }
+    }
     for (const bl of S.blasts) drawBlast(bl, cx, cy, t)
     for (const p of S.projs) drawProj(p, cx, cy)
     drawFx(S)
@@ -1309,7 +1341,7 @@ export function createRenderer(fb, w = VIEW_W, h = VIEW_H) {
       ringPx(P.stick.x + P.ox, P.stick.y + P.oy, 16, c('gy2'), 1)
       disc(P.stick.x + P.ox, P.stick.y + P.oy, 3, c('gy2'))
     }
-    if (S.isManual?.(S.leader)) drawSwingBtn(S, S.leader, { x: SWING_BTN.x + P.ox, y: SWING_BTN.y + P.oy, r: SWING_BTN.r, solid: true })
+    if (S.isManual?.(S.leader)) drawSwingBtn(S, S.leader, { x: SWING_BTN.x + P.ox, y: SWING_BTN.y + P.oy, r: SWING_BTN.r, solid: true }, ui.knob)
     drawNavBtns(P.ox, P.oy, false)
   }
 

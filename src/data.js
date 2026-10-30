@@ -137,7 +137,7 @@ export const GUARD = { half: 1.2, chip: 0.15, slow: 0.4, just: 0.2, stun: 1.0, j
 export const THROW = { range: 130, min: 16, drag: 4, flight: 0.5, fuse: 0.4, r: 34, mul: 2.2, kb: 240, stop: 0.08, cd: 0.8, slow: 0.6 }
 // 操作キャラが自分で使う僧侶。ちょん押しは、いちばん傷の深い仲間（range の中。自分も）へ癒やしの光（bolt × レベル の回復）
 // 長押しは、足元に癒やしの円（半径 r。中の仲間は 1 秒に rate × レベル 回復、敵の弾は消える）。祈っている間は動けない。max 秒で終わり、after 秒休む
-export const PRAY = { range: 150, bolt: 16, boltSpeed: 170, cd: 0.5, r: 38, rate: 9, max: 4, after: 1.2 }
+export const PRAY = { range: 150, bolt: 16, boltSpeed: 170, cd: 0.5, r: 38, rate: 9, max: 4, after: 1.2, smite: 5, smiteCd: 0.8 }   // smite: 治す仲間がいないときの光の攻撃（攻撃力。レベルの倍率をかける）、smiteCd: そのときの次まで（弓の 7 割ほどの強さ。gunzo-online から、2026-10-30）
 // 操作キャラが自分で使う盗賊のナイフ。押した瞬間に向いている方を刺す（届く距離 r、扇の半分 half）。cd 秒ごとに連打できる。背後から刺すと back 倍（CRIT）
 export const STAB = { r: 18, half: 0.8, cd: 0.18, back: 3, bossBack: 2, stop: 0.03, critStop: 0.07, kb: 70 }
 // 操作キャラが自分で使う氷術師。ちょん押しは近くの敵へツララ（攻撃力の icicle 倍）。長押しは狙った敵に照準を合わせ、charge 秒溜めて離すと冷気の弾で凍らせる

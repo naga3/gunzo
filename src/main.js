@@ -356,7 +356,7 @@ canvas.addEventListener('pointerdown', (e) => {
     S.input.pressed = true
     S.input.hold = true
     S.input.aim = null
-    drags.set(e.pointerId, { kind: 'btn', hold: true, fire: true, ax: SWING_BTN.x, ay: SWING_BTN.y })   // 狙いの中心はボタンの真ん中（スティックのように）
+    drags.set(e.pointerId, { kind: 'btn', hold: true, fire: true, ax: p.x, ay: p.y, x: p.x, y: p.y })   // 狙いの中心は、最初に触った所（ボタンの真ん中にすると、端を触ったとき、狙いがその向きに引っぱられる。gunzo-online から）
     return
   }
   // Z（Space）を押している間のドラッグは、振るボタンからずらすのと同じ: 移動ではなく狙い（始めた所からの向き）。Z を離すと撃つ
@@ -381,13 +381,13 @@ window.addEventListener('pointerdown', (e) => {
     S.input.pressed = true
     S.input.hold = true
     S.input.aim = null
-    drags.set(e.pointerId, { kind: 'btn', hold: true, fire: true, ax: SWING_BTN.x, ay: SWING_BTN.y })   // 狙いの中心はボタンの真ん中
+    drags.set(e.pointerId, { kind: 'btn', hold: true, fire: true, ax: p.x, ay: p.y, x: p.x, y: p.y })   // 狙いの中心は、最初に触った所
     return
   }
   drags.set(e.pointerId, { kind: 'drag', pad: true, follow: false, ax: p.x, ay: p.y, sx: p.x, sy: p.y, x: p.x, y: p.y, t: performance.now(), moved: 0 })
 })
 const FOLLOW_STOP = 3, FOLLOW_SLOW = 14            // マウスへ歩くとき: この近さで止まり、この距離の内側ではゆっくり
-const AIM_DEAD_PX = 10                               // ボタンの真ん中から、画面でこれ以上（CSS ピクセル）ずらしたら狙う（それまでは自動）
+const AIM_DEAD_PX = 10                               // 触った所から、画面でこれ以上（CSS ピクセル）ずらしたら狙う（それまでは自動）
 window.addEventListener('pointermove', (e) => {
   const d = drags.get(e.pointerId)
   if (d?.kind === 'btn' && (d.fire || d.aim)) {
@@ -531,6 +531,14 @@ function readInput() {
   }
   S.input.mx = mx
   S.input.my = my
+  // 絵のため: 自分で狙っているか（ずらした向き・マウスの向きがある）。振るボタンを押している指のずれ（つまみの絵。ボタンの内側まで）
+  ui.aimManual = !!S.input.aim
+  ui.knob = null
+  for (const d of drags.values()) {
+    if (d.kind !== 'btn' || !d.fire) continue
+    const dx = d.x - d.ax, dy = d.y - d.ay, m = Math.hypot(dx, dy), lim = SWING_BTN.r * 0.45
+    ui.knob = m > lim ? { dx: (dx / m) * lim, dy: (dy / m) * lim } : { dx, dy }
+  }
 }
 
 // --- ループ ---
